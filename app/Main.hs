@@ -12,6 +12,7 @@ import           System.Process   (CreateProcess (..), StdStream (..),
                                    createProcess, proc, shell, waitForProcess)
 
 import           Lexer
+import Parser
 
 main :: IO ()
 main = do
@@ -45,6 +46,19 @@ main = do
                    exitFailure
     Right tokens -> when (targetStage == S.CompilerMode S.LexerMode) $
       do print tokens
+         unless keepIntermediateFiles $ removeFile preProcessedFile
+         exitSuccess
+
+  let tokens = case lexerResult of Right ts -> ts
+                                   Left _ -> []
+
+  let parserResult = parseProgram tokens
+  case parserResult of
+    Left err -> do unless keepIntermediateFiles $ removeFile preProcessedFile
+                   print err
+                   exitFailure
+    Right ast -> when (targetStage == S.CompilerMode S.ParserMode) $
+      do print ast
          unless keepIntermediateFiles $ removeFile preProcessedFile
          exitSuccess
 

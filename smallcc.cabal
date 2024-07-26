@@ -63,9 +63,13 @@ library
   exposed-modules:
     Lexer
     MyLib
+    Parser
 
   -- Modules included in this library but not exported.
-  other-modules:    Lexer.Token
+  other-modules:
+    Lexer.Token
+    Parser.AST
+    Parser.Error
 
   -- LANGUAGE extensions used by modules in this package.
   -- other-extensions:
