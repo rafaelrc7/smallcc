@@ -9,7 +9,7 @@ import           Lexer.Token  (Token)
 import qualified Lexer.Token  as TK
 import           Parser.Error
 
-newtype Program = FunctionDefinition FunctionDefinition
+newtype Program = Program FunctionDefinition
   deriving (Show)
 
 data FunctionDefinition = Function { funcName :: T.Text
@@ -37,7 +37,7 @@ instance AST Program where
   parse :: [Token] -> Either ParserError (Program, [Token])
   parse ts = parse ts >>= \(function, ts') ->
     case ts' of
-      []    -> Right (FunctionDefinition function, ts')
+      []    -> Right (Program function, ts')
       (t:_) -> Left ExpectedEOF {got=t}
 
 -- <function> ::= "int" <identifier> "(" "void" ")" "{" <statement> "}"
