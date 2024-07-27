@@ -5,6 +5,7 @@ import qualified Settings          as S
 import           Control.Monad     (unless, when)
 import           Data.Char         (isSpace)
 import           Data.Functor      ((<&>))
+import qualified Data.Text.IO      as TIO
 import           System.Directory  (doesFileExist, removeFile)
 import           System.Exit       (ExitCode (..), die, exitFailure,
                                     exitSuccess)
@@ -12,6 +13,7 @@ import           System.FilePath   (dropExtension, replaceExtension,
                                     takeExtension)
 import           System.Process    (proc, readCreateProcessWithExitCode, shell)
 
+import           AssemblyEmitter
 import           AssemblyGenerator
 import           Lexer
 import           Parser
@@ -69,8 +71,9 @@ main = do
     do print assemblyAst
        exitSuccess
 
+  -- Code Emitter
   let assemblyFile = replaceExtension sourceFile ".s"
-  -- code emmiter goes here
+  TIO.writeFile assemblyFile $ emitAssembly assemblyAst
   when (targetStage == S.CompilerMode S.CodeEmitterMode) exitSuccess
 
   let objectFile = replaceExtension sourceFile ".o"
