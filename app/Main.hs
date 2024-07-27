@@ -1,16 +1,18 @@
 module Main where
 
-import qualified Settings         as S
+import qualified Settings          as S
 
-import           Control.Monad    (unless, when)
-import           Data.Char        (isSpace)
-import           Data.Functor     ((<&>))
-import           System.Directory (doesFileExist, removeFile)
-import           System.Exit      (ExitCode (..), die, exitFailure, exitSuccess)
-import           System.FilePath  (dropExtension, replaceExtension,
-                                   takeExtension)
-import           System.Process   (proc, readCreateProcessWithExitCode, shell)
+import           Control.Monad     (unless, when)
+import           Data.Char         (isSpace)
+import           Data.Functor      ((<&>))
+import           System.Directory  (doesFileExist, removeFile)
+import           System.Exit       (ExitCode (..), die, exitFailure,
+                                    exitSuccess)
+import           System.FilePath   (dropExtension, replaceExtension,
+                                    takeExtension)
+import           System.Process    (proc, readCreateProcessWithExitCode, shell)
 
+import           AssemblyGenerator
 import           Lexer
 import           Parser
 
@@ -60,6 +62,12 @@ main = do
                                 do print ast
                                    exitSuccess
                               return ast
+
+  -- Code Generator
+  let assemblyAst = translate ast
+  when (targetStage == S.CompilerMode S.CodeGeneratorMode) $
+    do print assemblyAst
+       exitSuccess
 
   let assemblyFile = replaceExtension sourceFile ".s"
   -- code emmiter goes here
