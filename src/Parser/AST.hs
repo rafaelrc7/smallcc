@@ -20,13 +20,18 @@ data FunctionDefinition = Function { funcName :: T.Text
 newtype Statement = Return Exp
   deriving (Show)
 
-newtype Exp = Constant IntConstant
-  deriving (Show)
-
-newtype Identifier = Identifier T.Text
+data Exp = Constant IntConstant
+         | Unary UnaryOperator Exp
   deriving (Show)
 
 newtype IntConstant = Int Int
+  deriving (Show)
+
+data UnaryOperator = Complement
+                   | Negate
+  deriving (Show)
+
+newtype Identifier = Identifier T.Text
   deriving (Show)
 
 class AST a where
@@ -49,12 +54,12 @@ instance AST FunctionDefinition where
         parse ts'' >>= \(body, ts''') ->
           case ts''' of
             (TK.CloseBrace : ts'''') -> Right (Function {funcName=name, funcBody=body}, ts'''')
-            (t : _) -> Left UnexpectedToken {got=t, expected=TK.CloseBrace}
-            [] -> Left UnexpectedEOF {expected=TK.CloseBrace}
-      (t : _) -> Left UnexpectedToken {got=t, expected=TK.OpenParens}
-      [] -> Left UnexpectedEOF {expected=TK.OpenParens}
-  parse (t : _) = Left UnexpectedToken {got=t, expected=TK.Keyword TK.Int}
-  parse [] = Left UnexpectedEOF {expected=TK.Keyword TK.Int}
+            (t : _) -> Left UnexpectedToken {got=t, expected="}"}
+            [] -> Left UnexpectedEOF {expected="}"}
+      (t : _) -> Left UnexpectedToken {got=t, expected="("}
+      [] -> Left UnexpectedEOF {expected="("}
+  parse (t : _) = Left UnexpectedToken {got=t, expected="int"}
+  parse [] = Left UnexpectedEOF {expected="int"}
 
 
 -- <statement> ::= "return" <exp> ";"
@@ -63,27 +68,35 @@ instance AST Statement where
   parse (TK.Keyword TK.Return : ts) = parse ts >>= \(expr, ts') ->
     case ts' of
       (TK.Semicolon : ts'') -> Right (Return expr, ts'')
-      (t : _) -> Left UnexpectedToken {got=t, expected=TK.Semicolon}
-      [] -> Left UnexpectedEOF {expected=TK.Semicolon}
-  parse (t : _) = Left UnexpectedToken {got=t, expected=TK.Keyword TK.Return}
-  parse [] = Left UnexpectedEOF {expected=TK.Keyword TK.Return}
+      (t : _) -> Left UnexpectedToken {got=t, expected=";"}
+      [] -> Left UnexpectedEOF {expected=";"}
+  parse (t : _) = Left UnexpectedToken {got=t, expected="return"}
+  parse [] = Left UnexpectedEOF {expected="return"}
 
--- <exp> ::= <int>
+-- <exp> ::= <int> | <unop> <exp> | "(" <exp> ")"
+-- <unop> ::= "-" | "~"
 instance AST Exp where
   parse :: [Token] -> Either ParserError (Exp, [Token])
+  parse (TK.OpenParens : ts) = parse ts >>= \(expr, ts') ->
+    case ts' of
+      (TK.CloseParens : ts'') -> Right (expr, ts'')
+      (t : _) -> Left UnexpectedToken {got=t, expected=")" }
+      [] -> Left UnexpectedEOF {expected=")"}
+  parse (TK.Minus : ts) = parse ts >>= \(expr, ts') -> Right (Unary Negate expr, ts')
+  parse (TK.Complement : ts) = parse ts >>= \(expr, ts') -> Right (Unary Complement expr, ts')
   parse ts = parse ts >>= \(constant, ts') -> Right (Constant constant, ts')
-
--- <identifier> ::= Tokens.Identifier
-instance AST Identifier where
-  parse :: [Token] -> Either ParserError (Identifier, [Token])
-  parse (TK.Identifier v : ts) = Right (Identifier v, ts)
-  parse (t : _) = Left UnexpectedToken {got=t, expected=TK.Identifier "identifier"}
-  parse [] = Left UnexpectedEOF {expected=TK.Identifier "identifier"}
 
 -- <int> ::= Tokens.Constant
 instance AST IntConstant where
   parse :: [Token] -> Either ParserError (IntConstant, [Token])
   parse (TK.Constant v : ts) = Right (Int v, ts)
-  parse (t : _) = Left UnexpectedToken {got=t, expected=TK.Constant 0}
-  parse [] = Left UnexpectedEOF {expected=TK.Constant 0}
+  parse (t : _) = Left UnexpectedToken {got=t, expected="<int>"}
+  parse [] = Left UnexpectedEOF {expected="<int>"}
+
+-- <identifier> ::= Tokens.Identifier
+instance AST Identifier where
+  parse :: [Token] -> Either ParserError (Identifier, [Token])
+  parse (TK.Identifier v : ts) = Right (Identifier v, ts)
+  parse (t : _) = Left UnexpectedToken {got=t, expected="<identifier>"}
+  parse [] = Left UnexpectedEOF {expected="<identifier>"}
 
