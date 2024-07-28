@@ -6,27 +6,18 @@ import           Data.Char         (isAlpha, isDigit, isSpace)
 import           Data.Int          (Int64)
 import qualified Data.Text         as T
 import qualified Data.Text.Lazy    as L
-import qualified Data.Text.Lazy.IO as LIO
-import qualified Data.Text.Read    as R
+import qualified Data.Text.Lazy.IO as L
+import qualified Data.Text.Read    as T
 
 import           Lexer.Token
 
-data Lexer = Lexer { lexerSourceBuffer     :: L.Text
-                   , lexerRemainingBuffer  :: L.Text
-                   , lexerCurrLexeme       :: T.Text
-                   , lexerCurrLexemeOffset :: Int64
-                   , lexerCurrLexemeLength :: Int64
+data Lexer = Lexer { lexerReadBuffer      :: L.Text
+                   , lexerRemainingBuffer :: L.Text
                    }
+  deriving (Show)
 
-fromFile :: FilePath -> IO Lexer
-fromFile filePath =
-  LIO.readFile filePath >>= \sourceBuffer ->
-  return $ Lexer { lexerSourceBuffer = sourceBuffer
-                 , lexerRemainingBuffer = sourceBuffer
-                 , lexerCurrLexeme = T.empty
-                 , lexerCurrLexemeOffset = 0
-                 , lexerCurrLexemeLength = 0
-                 }
+newtype Lexeme = Lexeme T.Text
+  deriving (Show)
 
 data LexerError = UnknownToken { unknownLexeme       :: T.Text
                                , unknownLexemeLine   :: Int64
@@ -36,99 +27,102 @@ data LexerError = UnknownToken { unknownLexeme       :: T.Text
                 | EOF
   deriving (Show)
 
+fromFile :: FilePath -> IO Lexer
+fromFile filePath =
+  L.readFile filePath >>= \sourceBuffer ->
+  return $ Lexer { lexerRemainingBuffer = sourceBuffer
+                 , lexerReadBuffer = L.empty
+                 }
+
 scanUntilEOF :: Lexer -> Either LexerError [Token]
-scanUntilEOF lexer = case token of
-                       Right token' -> scanUntilEOF lexer' >>= \tokens' ->
-                                       Right $ token' : tokens'
+scanUntilEOF lexer = case nextToken lexer of
+                       Right (token, lexer') -> scanUntilEOF lexer' >>= \tokens' ->
+                                                Right $ token : tokens'
                        Left EOF -> Right []
                        Left err -> Left err
-  where (token, lexer') = scanNextToken lexer
-
-scanNextToken :: Lexer -> (Either LexerError Token, Lexer)
-scanNextToken lexer | isAtEnd lexer = (Left EOF, lexer)
-                    | isSpace symbol = scanNextToken $ advanceLexeme lexer'
-                    | isDigit symbol = scanConstant lexer'
-                    | isAlpha_ symbol = scanIdentifier lexer'
-                    | otherwise = case symbol of
-                                    '(' -> retToken OpenParens
-                                    ')' -> retToken CloseParens
-                                    '{' -> retToken OpenBrace
-                                    '}' -> retToken CloseBrace
-                                    ';' -> retToken Semicolon
-                                    _   -> consumeUnknownToken lexer'
-  where (symbol, lexer') = scanNextSymbol lexer
-        retToken :: Token -> (Either LexerError Token, Lexer)
-        retToken token = (Right token, advanceLexeme lexer')
-
-scanConstant :: Lexer -> (Either LexerError Token, Lexer)
-scanConstant lexer = maybe retToken scanConstant' (peek lexer)
-  where scanConstant' :: Char -> (Either LexerError Token, Lexer)
-        scanConstant' peekedSymbol
-                        | isDigit peekedSymbol = scanConstant lexer'
-                        | isBoundary peekedSymbol = retToken
-                        | otherwise = consumeUnknownToken lexer'
-          where (_, lexer') = scanNextSymbol lexer
-
-        retToken :: (Either LexerError Token, Lexer)
-        retToken = case R.decimal $ lexerCurrLexeme lexer of
-                           Right (value, _) -> (Right $ Constant value, lexer)
-                           Left err         -> (Left $ InternalError err, lexer)
 
 
+nextToken :: Lexer -> Either LexerError (Token, Lexer)
+nextToken lexer = scanToken lexer newLexeme
+  where newLexeme = Lexeme T.empty
 
-scanIdentifier :: Lexer -> (Either LexerError Token, Lexer)
-scanIdentifier lexer = maybe retToken scanIdentifier' (peek lexer)
-  where scanIdentifier' :: Char -> (Either LexerError Token, Lexer)
-        scanIdentifier' peekedSymbol
-                          | isAlphaNum_ peekedSymbol = scanIdentifier lexer'
-                          | isBoundary peekedSymbol = retToken
-                          | otherwise = consumeUnknownToken lexer'
-          where (_, lexer') = scanNextSymbol lexer
+scanToken :: Lexer -> Lexeme -> Either LexerError (Token, Lexer)
+scanToken lexer lexeme =
+  case nextSymbol lexer lexeme of
+    Nothing -> Left EOF
+    Just (symbol, lexer', lexeme') ->
+      case symbol of
+        '(' -> retToken OpenParens
+        ')' -> retToken CloseParens
+        '{' -> retToken OpenBrace
+        '}' -> retToken CloseBrace
+        ';' -> retToken Semicolon
+        _ | isSpace symbol -> nextToken lexer'
+          | isDigit symbol -> scanConstant lexer' lexeme'
+          | isAlpha_ symbol -> scanIdentifier lexer' lexeme'
+          | otherwise -> scanUnknownToken lexer' lexeme'
+      where retToken :: Token -> Either LexerError (Token, Lexer)
+            retToken token = Right (token, lexer')
 
-        retToken :: (Either LexerError Token, Lexer)
-        retToken = case parseKeyword lexeme of
-                     Just keyword -> (Right $ Keyword keyword, lexer)
-                     Nothing      -> (Right $ Identifier lexeme, lexer)
+nextSymbol :: Lexer -> Lexeme -> Maybe (Char, Lexer, Lexeme)
+nextSymbol lexer (Lexeme lexeme) =
+  do (symbol, remainingBuffer) <- L.uncons $ lexerRemainingBuffer lexer
+     let readBuffer = L.snoc (lexerReadBuffer lexer) symbol
+     return (symbol
+            , lexer { lexerRemainingBuffer = remainingBuffer
+                    , lexerReadBuffer = readBuffer
+                    }
+            , Lexeme $ T.snoc lexeme symbol
+            )
 
-        lexeme = lexerCurrLexeme lexer
+scanConstant :: Lexer -> Lexeme -> Either LexerError (Token, Lexer)
+scanConstant lexer lexeme@(Lexeme lexemeBuffer) =
+  case nextSymbol lexer lexeme of
+    Nothing -> token
+    Just (symbol, lexer', lexeme')
+      | isBoundary symbol -> token
+      | isDigit symbol -> scanConstant lexer' lexeme'
+      | otherwise -> scanUnknownToken lexer' lexeme'
+  where token :: Either LexerError (Token, Lexer)
+        token = case T.decimal lexemeBuffer of
+                  Right (value, _) -> Right (Constant value, lexer)
+                  Left err         -> Left $ InternalError err
 
-consumeUnknownToken :: Lexer -> (Either LexerError Token, Lexer)
-consumeUnknownToken lexer = maybe err consumeUnknownToken' (peek lexer)
-  where consumeUnknownToken' :: Char -> (Either LexerError Token, Lexer)
-        consumeUnknownToken' peekedSymbol
-                               | isBoundary peekedSymbol = err
-                               | otherwise = consumeUnknownToken lexer'
-          where (_, lexer') = scanNextSymbol lexer
+scanIdentifier :: Lexer -> Lexeme -> Either LexerError (Token, Lexer)
+scanIdentifier lexer lexeme@(Lexeme lexemeBuffer) =
+  case nextSymbol lexer lexeme of
+    Nothing -> token
+    Just (symbol, lexer', lexeme')
+      | isAlphaNum_ symbol -> scanIdentifier lexer' lexeme'
+      | otherwise -> token
+  where token :: Either LexerError (Token, Lexer)
+        token = case parseKeyword lexemeBuffer of
+                  Just keyword -> Right (Keyword keyword, lexer)
+                  Nothing      -> Right (Identifier lexemeBuffer, lexer)
 
-        err :: (Either LexerError Token, Lexer)
-        err = unknownToken lexer
 
-unknownToken :: Lexer -> (Either LexerError Token, Lexer)
-unknownToken lexer = (Left err, advanceLexeme lexer)
-  where (line, col) = getLexemeLineColumn
-        err = UnknownToken {unknownLexeme=lexerCurrLexeme lexer, unknownLexemeLine=line, unknownLexemeColumn=col}
+scanUnknownToken :: Lexer -> Lexeme -> Either LexerError (Token, Lexer)
+scanUnknownToken lexer lexeme =
+  case nextSymbol lexer lexeme of
+    Nothing -> err
+    Just (symbol, lexer', lexeme') | isBoundary symbol -> err
+                                   | otherwise -> scanUnknownToken lexer' lexeme'
+  where err = Left $ unknownToken lexer lexeme
 
-        getLexemeLineColumn :: (Int64, Int64)
-        getLexemeLineColumn = (lexemeLine, lexemeColumn)
-          where offset = lexerCurrLexemeOffset lexer
-                sourceBufferUntilLexeme = L.take offset $ lexerSourceBuffer lexer
-                lexemeLine = 1 + L.count "\n" sourceBufferUntilLexeme
-                lexemeColumn = 1 + L.length (L.takeWhileEnd (/= '\n') sourceBufferUntilLexeme)
+unknownToken :: Lexer -> Lexeme -> LexerError
+unknownToken lexer lexeme@(Lexeme lexemeBuff) =
+  UnknownToken { unknownLexeme = lexemeBuff
+               , unknownLexemeLine = line
+               , unknownLexemeColumn = col
+               }
+  where (line, col) = getLexemeLineColumn lexer lexeme
 
-scanNextSymbol :: Lexer -> (Char, Lexer)
-scanNextSymbol lexer = (hd, lexer { lexerCurrLexemeLength = lexerCurrLexemeLength lexer + 1
-                                  , lexerRemainingBuffer = remainingBuffer'
-                                  , lexerCurrLexeme = lexerCurrLexeme lexer `T.snoc` hd })
-  where remainingBuffer = lexerRemainingBuffer lexer
-        hd = L.head remainingBuffer
-        remainingBuffer' = L.tail remainingBuffer
-
-advanceLexeme :: Lexer -> Lexer
-advanceLexeme lexer = lexer { lexerCurrLexemeOffset = offset + len
-                            , lexerCurrLexemeLength = 0
-                            , lexerCurrLexeme = T.empty }
-  where offset = lexerCurrLexemeOffset lexer
-        len = lexerCurrLexemeLength lexer
+getLexemeLineColumn :: Lexer -> Lexeme -> (Int64, Int64)
+getLexemeLineColumn lexer (Lexeme lexeme) = (lexemeLine, lexemeColumn)
+  where readBuffer = lexerReadBuffer lexer
+        bufferUntilLexeme = L.dropEnd (fromIntegral $ T.length lexeme) readBuffer
+        lexemeLine = 1 + L.count "\n" bufferUntilLexeme
+        lexemeColumn = 1 + L.length (L.takeWhileEnd (/= '\n') bufferUntilLexeme)
 
 isAtEnd :: Lexer -> Bool
 isAtEnd = L.null . lexerRemainingBuffer
@@ -137,9 +131,6 @@ lookAhead :: Lexer -> Int64 -> Maybe Char
 lookAhead lexer index | index >= L.length remainingBuffer = Nothing
                       | otherwise = Just $ L.index remainingBuffer index
   where remainingBuffer = lexerRemainingBuffer lexer
-
-peek :: Lexer -> Maybe Char
-peek lexer = lookAhead lexer 0
 
 isAlpha_ :: Char -> Bool
 isAlpha_ '_' = True
