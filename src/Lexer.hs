@@ -57,6 +57,8 @@ scanToken lexer lexeme =
         '{' -> retToken OpenBrace
         '}' -> retToken CloseBrace
         ';' -> retToken Semicolon
+        '~' -> retToken Complement
+        '-' -> scanMinusDecrement lexer' lexeme'
         _ | isSpace symbol -> nextToken lexer'
           | isDigit symbol -> scanConstant lexer' lexeme'
           | isAlpha_ symbol -> scanIdentifier lexer' lexeme'
@@ -100,6 +102,11 @@ scanIdentifier lexer lexeme@(Lexeme lexemeBuffer) =
                   Just keyword -> Right (Keyword keyword, lexer)
                   Nothing      -> Right (Identifier lexemeBuffer, lexer)
 
+scanMinusDecrement :: Lexer -> Lexeme -> Either LexerError (Token, Lexer)
+scanMinusDecrement lexer lexeme =
+  case nextSymbol lexer lexeme of
+    Just ('-', lexer', _) -> Right (Decrement, lexer')
+    _ -> Right (Minus, lexer)
 
 scanUnknownToken :: Lexer -> Lexeme -> Either LexerError (Token, Lexer)
 scanUnknownToken lexer lexeme =

@@ -12,6 +12,9 @@ data Token = Keyword Keyword
            | OpenBrace
            | CloseBrace
            | Semicolon
+           | Complement
+           | Decrement
+           | Minus
   deriving (Show, Eq)
 
 data Keyword = Int
