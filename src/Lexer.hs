@@ -106,7 +106,7 @@ scanMinusDecrement :: Lexer -> Lexeme -> Either LexerError (Token, Lexer)
 scanMinusDecrement lexer lexeme =
   case nextSymbol lexer lexeme of
     Just ('-', lexer', _) -> Right (Decrement, lexer')
-    _ -> Right (Minus, lexer)
+    _                     -> Right (Minus, lexer)
 
 scanUnknownToken :: Lexer -> Lexeme -> Either LexerError (Token, Lexer)
 scanUnknownToken lexer lexeme =

@@ -8,6 +8,7 @@ import           Options.Applicative
 
 data CompilerMode = LexerMode
                   | ParserMode
+                  | Tacky
                   | CodeGeneratorMode
                   | CodeEmitterMode
  deriving (Show, Eq)
@@ -38,7 +39,9 @@ settingsParser :: Parser Settings
 settingsParser = Settings <$> modeParser <*> keepIntermediateFilesParser <*> inputFileParser
 
 modeParser :: Parser Mode
-modeParser = preProcessorMode <|> lexerMode <|> parserMode <|> codeGeneratorMode <|> codeEmitterMode <|> assemblerMode <|> linkerMode <|> pure LinkerMode
+modeParser = preProcessorMode <|> lexerMode <|> parserMode <|> tackyMode
+              <|> codeGeneratorMode <|> codeEmitterMode <|> assemblerMode
+              <|> linkerMode <|> pure LinkerMode
 
 keepIntermediateFilesParser :: Parser Bool
 keepIntermediateFilesParser = switch ( long "keep" <> short 'K' <> help "Keep intermediate files" )
@@ -61,6 +64,11 @@ parserMode :: Parser Mode
 parserMode = flag' (CompilerMode ParserMode)
   (  long "parse"
   <> help "Run up to the parser" )
+
+tackyMode :: Parser Mode
+tackyMode = flag' (CompilerMode Tacky)
+  (  long "tacky"
+  <> help "Run up to tacky generation" )
 
 codeGeneratorMode :: Parser Mode
 codeGeneratorMode = flag' (CompilerMode CodeGeneratorMode)

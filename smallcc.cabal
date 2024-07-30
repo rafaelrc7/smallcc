@@ -66,6 +66,7 @@ library
     Lexer
     MyLib
     Parser
+    Tacky
 
   -- Modules included in this library but not exported.
   other-modules:
@@ -74,6 +75,7 @@ library
     Lexer.Token
     Parser.AST
     Parser.Error
+    Tacky.AST
 
   -- LANGUAGE extensions used by modules in this package.
   -- other-extensions:

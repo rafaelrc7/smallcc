@@ -1,7 +1,7 @@
 module Parser.Error (ParserError(..)) where
 
+import           Data.Text   (Text)
 import           Lexer.Token
-import Data.Text (Text)
 
 data ParserError = UnexpectedToken { expected :: Text
                                    , got      :: Token

@@ -17,6 +17,7 @@ import           AssemblyEmitter
 import           AssemblyGenerator
 import           Lexer
 import           Parser
+import           Tacky
 
 main :: IO ()
 main = do
@@ -64,6 +65,12 @@ main = do
                                 do print ast
                                    exitSuccess
                               return ast
+
+  -- Tacky generator
+  let tackyAst = translateTacky ast
+  when (targetStage == S.CompilerMode S.Tacky) $
+    do print tackyAst
+       exitSuccess
 
   -- Code Generator
   let assemblyAst = translate ast
