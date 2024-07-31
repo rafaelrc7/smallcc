@@ -54,7 +54,7 @@ translateStatement (P.Return expr) = expInstructions ++ [Return expVal]
   where (expInstructions, expVal, _) = translateExp emptyState expr
 
 translateExp :: State -> P.Exp -> ([Instruction], Val, State)
-translateExp s (P.Constant (P.Int val)) = ([], Const val, s)
+translateExp s (P.Constant (P.CInt val)) = ([], Const val, s)
 translateExp state (P.Unary op expr) = (instructions, dst, state'')
   where (exprInstructions, src, state') = translateExp state expr
         (dst, state'') = newTmpVar state'
