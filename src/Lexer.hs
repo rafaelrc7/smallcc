@@ -58,6 +58,10 @@ scanToken lexer lexeme =
         '}' -> retToken CloseBrace
         ';' -> retToken Semicolon
         '~' -> retToken Complement
+        '+' -> retToken Plus
+        '*' -> retToken Asterisk
+        '/' -> retToken ForwardSlash
+        '%' -> retToken Percent
         '-' -> scanMinusDecrement lexer' lexeme'
         _ | isSpace symbol -> nextToken lexer'
           | isDigit symbol -> scanConstant lexer' lexeme'

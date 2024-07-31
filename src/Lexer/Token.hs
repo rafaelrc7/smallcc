@@ -15,6 +15,10 @@ data Token = Keyword Keyword
            | Complement
            | Decrement
            | Minus
+           | Plus
+           | Asterisk
+           | ForwardSlash
+           | Percent
   deriving (Show, Eq)
 
 data Keyword = Int
