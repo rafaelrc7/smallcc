@@ -73,7 +73,7 @@ main = do
        exitSuccess
 
   -- Code Generator
-  let assemblyAst = translate ast
+  let assemblyAst = translate tackyAst
   when (targetStage == S.CompilerMode S.CodeGeneratorMode) $
     do print assemblyAst
        exitSuccess

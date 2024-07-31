@@ -1,8 +1,8 @@
 module AssemblyGenerator where
 
 import           AssemblyGenerator.AST
-import qualified Parser.AST            as P
+import qualified Tacky.AST             as T
 
-translate :: P.Program -> Program
-translate = translateProgram
+translate :: T.Program -> Program
+translate = fixInstructions . replacePseudoRegisters . translateProgram
 

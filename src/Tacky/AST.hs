@@ -21,12 +21,11 @@ newtype Program = Program FunctionDefinition
   deriving (Show)
 
 data FunctionDefinition = Function { funcIdentifier :: Identifier
-                                   , funcBody       :: Instruction
+                                   , funcBody       :: [Instruction]
                                    }
   deriving (Show)
 
-data Instruction = Seq Instruction Instruction
-                 | Return Val
+data Instruction = Return Val
                  | Unary { unaryOperator :: UnaryOperator
                          , unarySrc      :: Val
                          , unaryDst      :: Val
@@ -50,21 +49,17 @@ translateFunction P.Function {P.funcName=name, P.funcBody=body} =
            , funcBody = translateStatement body
            }
 
-translateStatement :: P.Statement -> Instruction
-translateStatement (P.Return expr) = case expInstructions of
-                                      Just expInstructions' -> Seq expInstructions' (Return expVal)
-                                      Nothing -> Return expVal
+translateStatement :: P.Statement -> [Instruction]
+translateStatement (P.Return expr) = expInstructions ++ [Return expVal]
   where (expInstructions, expVal, _) = translateExp emptyState expr
 
-translateExp :: State -> P.Exp -> (Maybe Instruction, Val, State)
-translateExp s (P.Constant (P.Int val)) = (Nothing, Const val, s)
-translateExp state (P.Unary op expr) = (Just instructions, dst, state'')
+translateExp :: State -> P.Exp -> ([Instruction], Val, State)
+translateExp s (P.Constant (P.Int val)) = ([], Const val, s)
+translateExp state (P.Unary op expr) = (instructions, dst, state'')
   where (exprInstructions, src, state') = translateExp state expr
         (dst, state'') = newTmpVar state'
         instruction = Unary {unaryOperator=translateUnaryOp op, unarySrc=src, unaryDst=dst}
-        instructions = case exprInstructions of
-                         Just exprInstructions' -> Seq exprInstructions' instruction
-                         Nothing -> instruction
+        instructions = exprInstructions ++ [instruction]
 
 translateUnaryOp :: P.UnaryOperator -> UnaryOperator
 translateUnaryOp P.Complement = Complement
