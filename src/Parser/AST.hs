@@ -31,6 +31,7 @@ newtype Constant = CInt Int
 
 data UnaryOperator = Complement
                    | Negate
+                   | Not
   deriving (Show)
 
 data BinaryOperator = Add
@@ -43,22 +44,38 @@ data BinaryOperator = Add
                     | BitXOR
                     | BitShiftLeft
                     | BitShiftRight
+                    | And
+                    | Or
+                    | Equals
+                    | NotEquals
+                    | Less
+                    | LessOrEqual
+                    | Greater
+                    | GreaterOrEqual
   deriving (Show)
 
 type Identifier = Text
 
 precedence :: BinaryOperator -> Int
 -- https://en.cppreference.com/w/c/language/operator_precedence
-precedence BitOr         = 15
-precedence BitXOR        = 20
-precedence BitAnd        = 25
-precedence BitShiftLeft  = 40
-precedence BitShiftRight = 40
-precedence Add           = 45
-precedence Subtract      = 45
-precedence Multiply      = 50
-precedence Divide        = 50
-precedence Remainder     = 50
+precedence Or             = 5
+precedence And            = 10
+precedence BitOr          = 15
+precedence BitXOR         = 20
+precedence BitAnd         = 25
+precedence Equals         = 30
+precedence NotEquals      = 30
+precedence Less           = 35
+precedence LessOrEqual    = 35
+precedence Greater        = 35
+precedence GreaterOrEqual = 35
+precedence BitShiftLeft   = 40
+precedence BitShiftRight  = 40
+precedence Add            = 45
+precedence Subtract       = 45
+precedence Multiply       = 50
+precedence Divide         = 50
+precedence Remainder      = 50
 
 class Parser a where
   parse :: [Token] -> Either ParserError (a, [Token])
@@ -100,9 +117,6 @@ instance Parser Statement where
   parse [] = Left UnexpectedEOF {expected="return"}
 
 -- <exp> ::= <factor> | <exp> <binop> <exp>
--- <factor> ::= <int> | <unop> <exp> | "(" <exp> ")"
--- <unop> ::= "-" | "~"
--- <binop> ::= "-" | "+" | "*" | "/" | "%"
 instance Parser Exp where
   parse :: [Token] -> Either ParserError (Exp, [Token])
   parse = parseExp 0
@@ -123,9 +137,12 @@ parseExp minPrecedence ts =
               | otherwise -> Right (left, ts')
             where opPrecedence = precedence op
 
+-- <factor> ::= <int> | <unop> <exp> | "(" <exp> ")"
+-- <unop> ::= "-" | "~" | "!"
 parseFactor :: [Token] -> Either ParserError (Exp, [Token])
 parseFactor (TK.Minus : ts) = parseFactor ts >>= \(expr, ts') -> Right (Unary Negate expr, ts')
 parseFactor (TK.Complement : ts) = parseFactor ts >>= \(expr, ts') -> Right (Unary Complement expr, ts')
+parseFactor (TK.Not : ts) = parseFactor ts >>= \(expr, ts') -> Right (Unary Not expr, ts')
 parseFactor (TK.OpenParens : ts) = parse ts >>= \(expr, ts') ->
   case ts' of
     (TK.CloseParens : ts'') -> Right (expr, ts'')
@@ -133,18 +150,29 @@ parseFactor (TK.OpenParens : ts) = parse ts >>= \(expr, ts') ->
     []                      -> Left UnexpectedEOF {expected=")"}
 parseFactor ts = parse ts >>= \(constant, ts') -> Right (Constant constant, ts')
 
+-- <binop> ::= "-" | "+" | "*" | "/" | "%" | "&&" | "||"
+--           | "==" | "!=" | "<" | "<=" | ">" | ">="
+--           | ">>" | "<<" | "&" | "|" | "^"
 instance Parser BinaryOperator where
   parse :: [Token] -> Either ParserError (BinaryOperator, [Token])
-  parse (TK.Minus : ts) = Right (Subtract, ts)
+  parse (TK.Or : ts) = Right (Or, ts)
+  parse (TK.And : ts) = Right (And, ts)
+  parse (TK.BitOr : ts) = Right (BitOr, ts)
+  parse (TK.BitXOR : ts) = Right (BitXOR, ts)
+  parse (TK.BitAnd : ts) = Right (BitAnd, ts)
+  parse (TK.Equals : ts) = Right (Equals, ts)
+  parse (TK.NotEquals : ts) = Right (NotEquals, ts)
+  parse (TK.Less : ts) = Right (Less, ts)
+  parse (TK.LessOrEqual : ts) = Right (LessOrEqual, ts)
+  parse (TK.Greater : ts) = Right (Greater, ts)
+  parse (TK.GreaterOrEqual : ts) = Right (GreaterOrEqual, ts)
+  parse (TK.BitShiftLeft : ts) = Right (BitShiftLeft, ts)
+  parse (TK.BitShiftRight : ts) = Right (BitShiftRight, ts)
   parse (TK.Plus : ts) = Right (Add, ts)
+  parse (TK.Minus : ts) = Right (Subtract, ts)
   parse (TK.Asterisk : ts) = Right (Multiply, ts)
   parse (TK.ForwardSlash : ts) = Right (Divide, ts)
   parse (TK.Percent : ts) = Right (Remainder, ts)
-  parse (TK.BitAnd : ts) = Right (BitAnd, ts)
-  parse (TK.BitOr : ts) = Right (BitOr, ts)
-  parse (TK.BitXOR : ts) = Right (BitXOR, ts)
-  parse (TK.BitShiftLeft : ts) = Right (BitShiftLeft, ts)
-  parse (TK.BitShiftRight : ts) = Right (BitShiftRight, ts)
   parse (t : _) = Left UnexpectedToken {got=t, expected="<binop>"}
   parse [] = Left UnexpectedEOF {expected="<binop>"}
 
