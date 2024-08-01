@@ -23,6 +23,7 @@ newtype Statement = Return Exp
 
 data Exp = Constant Constant
          | Unary UnaryOperator Exp
+         | Binary BinaryOperator Exp Exp
   deriving (Show)
 
 newtype Constant = CInt Int
@@ -32,7 +33,21 @@ data UnaryOperator = Complement
                    | Negate
   deriving (Show)
 
+data BinaryOperator = Add
+                    | Subtract
+                    | Multiply
+                    | Divide
+                    | Remainder
+  deriving (Show)
+
 type Identifier = Text
+
+precedence :: BinaryOperator -> Int
+precedence Add       = 45
+precedence Subtract  = 45
+precedence Multiply  = 50
+precedence Divide    = 50
+precedence Remainder = 50
 
 class Parser a where
   parse :: [Token] -> Either ParserError (a, [Token])
@@ -73,18 +88,49 @@ instance Parser Statement where
   parse (t : _) = Left UnexpectedToken {got=t, expected="return"}
   parse [] = Left UnexpectedEOF {expected="return"}
 
--- <exp> ::= <int> | <unop> <exp> | "(" <exp> ")"
+-- <exp> ::= <factor> | <exp> <binop> <exp>
+-- <factor> ::= <int> | <unop> <exp> | "(" <exp> ")"
 -- <unop> ::= "-" | "~"
+-- <binop> ::= "-" | "+" | "*" | "/" | "%"
 instance Parser Exp where
   parse :: [Token] -> Either ParserError (Exp, [Token])
-  parse (TK.OpenParens : ts) = parse ts >>= \(expr, ts') ->
-    case ts' of
-      (TK.CloseParens : ts'') -> Right (expr, ts'')
-      (t : _)                 -> Left UnexpectedToken {got=t, expected=")" }
-      []                      -> Left UnexpectedEOF {expected=")"}
-  parse (TK.Minus : ts) = parse ts >>= \(expr, ts') -> Right (Unary Negate expr, ts')
-  parse (TK.Complement : ts) = parse ts >>= \(expr, ts') -> Right (Unary Complement expr, ts')
-  parse ts = parse ts >>= \(constant, ts') -> Right (Constant constant, ts')
+  parse = parseExp 0
+
+parseExp :: Int -> [Token] -> Either ParserError (Exp, [Token])
+parseExp minPrecedence ts =
+  parseFactor ts >>= \(left, ts') ->
+  case parse ts' :: Either ParserError (BinaryOperator, [Token]) of
+    Left _  -> Right (left, ts')
+    Right _ -> parseExp' minPrecedence ts' left
+  where parseExp' :: Int -> [Token] -> Exp -> Either ParserError (Exp, [Token])
+        parseExp' minPrec ts' left = case parse ts' :: Either ParserError (BinaryOperator, [Token]) of
+          Left _ -> Right (left, ts')
+          Right (op, ts'')
+              | opPrecedence >= minPrec ->
+                  parseExp (opPrecedence + 1) ts'' >>= \(right, ts''') ->
+                  parseExp' minPrec ts''' (Binary op left right)
+              | otherwise -> Right (left, ts')
+            where opPrecedence = precedence op
+
+parseFactor :: [Token] -> Either ParserError (Exp, [Token])
+parseFactor (TK.Minus : ts) = parseFactor ts >>= \(expr, ts') -> Right (Unary Negate expr, ts')
+parseFactor (TK.Complement : ts) = parseFactor ts >>= \(expr, ts') -> Right (Unary Complement expr, ts')
+parseFactor (TK.OpenParens : ts) = parse ts >>= \(expr, ts') ->
+  case ts' of
+    (TK.CloseParens : ts'') -> Right (expr, ts'')
+    (t : _)                 -> Left UnexpectedToken {got=t, expected=")" }
+    []                      -> Left UnexpectedEOF {expected=")"}
+parseFactor ts = parse ts >>= \(constant, ts') -> Right (Constant constant, ts')
+
+instance Parser BinaryOperator where
+  parse :: [Token] -> Either ParserError (BinaryOperator, [Token])
+  parse (TK.Minus : ts) = Right (Subtract, ts)
+  parse (TK.Plus : ts) = Right (Add, ts)
+  parse (TK.Asterisk : ts) = Right (Multiply, ts)
+  parse (TK.ForwardSlash : ts) = Right (Divide, ts)
+  parse (TK.Percent : ts) = Right (Remainder, ts)
+  parse (t : _) = Left UnexpectedToken {got=t, expected="<binop>"}
+  parse [] = Left UnexpectedEOF {expected="<binop>"}
 
 -- <int> ::= Tokens.Constant
 instance Parser Constant where
