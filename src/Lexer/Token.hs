@@ -24,10 +24,15 @@ data Token = Keyword Keyword
            | Or
            | BitOr
            | BitXOR
+           | Less
+           | LessOrEqual
            | BitShiftLeft
-           | LessThan
+           | Greater
+           | GreaterOrEqual
            | BitShiftRight
-           | GreaterThan
+           | Not
+           | NotEquals
+           | Equals
   deriving (Show, Eq)
 
 data Keyword = Int

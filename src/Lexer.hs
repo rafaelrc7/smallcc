@@ -23,6 +23,7 @@ data LexerError = UnknownToken { unknownLexeme       :: T.Text
                                , unknownLexemeLine   :: Int64
                                , unknownLexemeColumn :: Int64
                                }
+                | MalformedToken
                 | InternalError String
                 | EOF
   deriving (Show)
@@ -63,17 +64,22 @@ scanToken lexer lexeme =
         '/' -> retToken ForwardSlash
         '%' -> retToken Percent
         '^' -> retToken BitXOR
-        '-' -> scanSingleDoubleToken '-' (Minus, Decrement)  lexer' lexeme'
-        '&' -> scanSingleDoubleToken '&' (BitAnd, And)  lexer' lexeme'
-        '|' -> scanSingleDoubleToken '|' (BitOr, Or)  lexer' lexeme'
-        '<' -> scanSingleDoubleToken '<' (LessThan, BitShiftLeft)  lexer' lexeme'
-        '>' -> scanSingleDoubleToken '>' (GreaterThan, BitShiftRight)  lexer' lexeme'
+        '=' -> scanCompoundToken' Nothing        [('=', Equals)]
+        '!' -> scanCompoundToken' (Just Not)     [('=', NotEquals)]
+        '-' -> scanCompoundToken' (Just Minus)   [('-', Decrement)]
+        '&' -> scanCompoundToken' (Just BitAnd)  [('&', And)]
+        '|' -> scanCompoundToken' (Just BitOr)   [('|', Or)]
+        '<' -> scanCompoundToken' (Just Less)    [('=', LessOrEqual), ('<', BitShiftLeft)]
+        '>' -> scanCompoundToken' (Just Greater) [('=', GreaterOrEqual), ('>', BitShiftRight)]
         _ | isSpace symbol -> nextToken lexer'
           | isDigit symbol -> scanConstant lexer' lexeme'
           | isAlpha_ symbol -> scanIdentifier lexer' lexeme'
           | otherwise -> scanUnknownToken lexer' lexeme'
       where retToken :: Token -> Either LexerError (Token, Lexer)
             retToken token = Right (token, lexer')
+
+            scanCompoundToken' :: Maybe Token -> [(Char, Token)] -> Either LexerError (Token, Lexer)
+            scanCompoundToken' = scanCompoundToken lexer' lexeme'
 
 nextSymbol :: Lexer -> Lexeme -> Maybe (Char, Lexer, Lexeme)
 nextSymbol lexer (Lexeme lexeme) =
@@ -111,12 +117,16 @@ scanIdentifier lexer lexeme@(Lexeme lexemeBuffer) =
                   Just keyword -> Right (Keyword keyword, lexer)
                   Nothing      -> Right (Identifier lexemeBuffer, lexer)
 
-scanSingleDoubleToken :: Char -> (Token, Token) -> Lexer -> Lexeme -> Either LexerError (Token, Lexer)
-scanSingleDoubleToken symbol (singleToken, doubleToken) lexer lexeme =
+scanCompoundToken :: Lexer -> Lexeme -> Maybe Token -> [(Char, Token)] -> Either LexerError (Token, Lexer)
+scanCompoundToken _ _ Nothing [] = Left MalformedToken
+scanCompoundToken lexer _ (Just token) [] = Right (token, lexer)
+scanCompoundToken lexer lexeme singleToken ((symbol, token):cts) =
   case nextSymbol lexer lexeme of
-    Just (symbol', lexer', _) | symbol == symbol' -> Right (doubleToken, lexer')
-                              | otherwise -> Right (singleToken, lexer)
-    _ -> Right (singleToken, lexer)
+    Just (symbol', lexer', _)
+      | symbol == symbol' -> Right (token, lexer')
+      | otherwise -> iter
+    Nothing -> iter
+  where iter = scanCompoundToken lexer lexeme singleToken cts
 
 scanUnknownToken :: Lexer -> Lexeme -> Either LexerError (Token, Lexer)
 scanUnknownToken lexer lexeme =
