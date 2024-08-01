@@ -45,6 +45,11 @@ data BinaryOperator = Add
                     | Multiply
                     | Divide
                     | Remainder
+                    | BitAnd
+                    | BitOr
+                    | BitXOR
+                    | BitShiftLeft
+                    | BitShiftRight
   deriving (Show)
 
 data Val = Const Int
@@ -83,11 +88,16 @@ translateUnaryOp P.Complement = Complement
 translateUnaryOp P.Negate     = Negate
 
 translateBinaryOp :: P.BinaryOperator -> BinaryOperator
-translateBinaryOp P.Add       = Add
-translateBinaryOp P.Subtract  = Subtract
-translateBinaryOp P.Multiply  = Multiply
-translateBinaryOp P.Divide    = Divide
-translateBinaryOp P.Remainder = Remainder
+translateBinaryOp P.Add           = Add
+translateBinaryOp P.Subtract      = Subtract
+translateBinaryOp P.Multiply      = Multiply
+translateBinaryOp P.Divide        = Divide
+translateBinaryOp P.Remainder     = Remainder
+translateBinaryOp P.BitAnd        = BitAnd
+translateBinaryOp P.BitOr         = BitOr
+translateBinaryOp P.BitXOR        = BitXOR
+translateBinaryOp P.BitShiftLeft  = BitShiftLeft
+translateBinaryOp P.BitShiftRight = BitShiftRight
 
 newTmpVar :: State -> (Val, State)
 newTmpVar State{stateLastTmp=lastTmp} = (Var newTmpLabel, State{stateLastTmp=newTmp})

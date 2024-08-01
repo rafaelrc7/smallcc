@@ -32,7 +32,7 @@ instance Assembly Instruction where
              \\npopq %rbp\
              \\nret"
   emit Unary {unaryOperand=operand, unaryOp=op} = T.intercalate " " [emit op, emit operand]
-  emit Binary {binaryOperands=(src, dst), binaryOp=op} = emit op `T.append` " " `T.append` emit src `T.append` ", " `T.append` emit dst
+  emit Binary {binaryOperands=(op1, op2), binaryOp=op} = emit op `T.append` " " `T.append` emit op1 `T.append` ", " `T.append` emit op2
   emit (Idiv operand) = "idivl " `T.append` emit operand
   emit Cdq = "cdq"
   emit (AllocateStack offset) = "subq " `T.append` literal offset `T.append` ", %rsp"
@@ -48,6 +48,8 @@ instance Assembly Reg where
   emit :: Reg -> Text
   emit AX  = "%eax"
   emit DX  = "%edx"
+  emit CL  = "%cl"
+  emit CX  = "%ecx"
   emit R10 = "%r10d"
   emit R11 = "%r11d"
 
@@ -58,9 +60,14 @@ instance Assembly UnaryOperator where
 
 instance Assembly BinaryOperator where
   emit :: BinaryOperator -> Text
-  emit Add  = "addl"
-  emit Sub  = "subl"
-  emit Mult = "imull"
+  emit Add        = "addl"
+  emit Sub        = "subl"
+  emit Mult       = "imull"
+  emit And        = "andl"
+  emit Or         = "orl"
+  emit Xor        = "xorl"
+  emit ShiftLeft  = "sall"
+  emit ShiftRight = "sarl"
 
 literal :: Int -> Text
 literal v = T.pack $ '$' : show v

@@ -38,6 +38,11 @@ data UnaryOperator = Neg
 data BinaryOperator = Add
                     | Sub
                     | Mult
+                    | And
+                    | Or
+                    | Xor
+                    | ShiftLeft
+                    | ShiftRight
   deriving (Show)
 
 data Operand = Imm Int
@@ -48,6 +53,8 @@ data Operand = Imm Int
 
 data Reg = AX
          | DX
+         | CL
+         | CX
          | R10
          | R11
   deriving (Show)
@@ -96,20 +103,24 @@ fixInstructions (program, lastOffset) = fixProgram program
 
 
         fixInstruction :: Instruction -> [Instruction]
-        fixInstruction Mov {movSrc=Stack src, movDst=Stack dst} = [ Mov {movSrc=Stack src, movDst=Reg R10}
-                                                                  , Mov {movSrc=Reg R10, movDst=Stack dst}
-                                                                  ]
+        fixInstruction Mov {movSrc=src@(Stack _), movDst=dst@(Stack _)} = [ Mov {movSrc=src, movDst=Reg R10}
+                                                                          , Mov {movSrc=Reg R10, movDst=dst}
+                                                                          ]
         fixInstruction (Idiv imm@(Imm _)) = [ Mov {movSrc=imm, movDst=Reg R10}
                                             , Idiv (Reg R10)
                                             ]
-        fixInstruction Binary {binaryOp=Add, binaryOperands=(Stack operandl, operandr@(Stack _))} = [ Mov {movSrc=Stack operandl, movDst=Reg R10}
-                                                                                                    , Binary {binaryOp=Add, binaryOperands=(Reg R10, operandr)}]
-        fixInstruction Binary {binaryOp=Sub, binaryOperands=(operandl@(Stack _), operandr@(Stack _))} = [ Mov {movSrc=operandl, movDst=Reg R10}
-                                                                                                        , Binary {binaryOp=Sub, binaryOperands=(Reg R10, operandr)}]
-        fixInstruction Binary {binaryOp=Mult, binaryOperands=(operandl, operandr@(Stack _))} = [ Mov {movSrc=operandr, movDst=Reg R11}
-                                                                                               , Binary {binaryOp=Mult, binaryOperands=(operandl, Reg R11)}
-                                                                                               , Mov {movSrc=Reg R11, movDst=operandr}
-                                                                                               ]
+        fixInstruction Binary {binaryOp=op@Mult, binaryOperands=(operandl, operandr@(Stack _))} = [ Mov {movSrc=operandr, movDst=Reg R11}
+                                                                                                  , Binary {binaryOp=op, binaryOperands=(operandl, Reg R11)}
+                                                                                                  , Mov {movSrc=Reg R11, movDst=operandr}
+                                                                                                  ]
+        fixInstruction Binary {binaryOp=op@ShiftLeft, binaryOperands=(operandl@(Stack _), operandr)} = [ Mov {movSrc=operandl, movDst=Reg CX}
+                                                                                                       , Binary {binaryOp=op, binaryOperands=(Reg CL, operandr)}
+                                                                                                       ]
+        fixInstruction Binary {binaryOp=op@ShiftRight, binaryOperands=(operandl@(Stack _), operandr)} = [ Mov {movSrc=operandl, movDst=Reg CX}
+                                                                                                        , Binary {binaryOp=op, binaryOperands=(Reg CL, operandr)}
+                                                                                                        ]
+        fixInstruction Binary {binaryOp=op, binaryOperands=(operandl@(Stack _), operandr@(Stack _))} = [ Mov {movSrc=operandl, movDst=Reg R10}
+                                                                                                       , Binary {binaryOp=op, binaryOperands=(Reg R10, operandr)}]
         fixInstruction i = [i]
 
 type VarMap = (Map Identifier Int, Int)
@@ -186,8 +197,14 @@ translateUnaryOp T.Complement = Not
 translateUnaryOp T.Negate     = Neg
 
 translateBinaryOp :: T.BinaryOperator -> BinaryOperator
-translateBinaryOp T.Add      = Add
-translateBinaryOp T.Multiply = Mult
-translateBinaryOp T.Subtract = Sub
-translateBinaryOp _          = undefined
+translateBinaryOp T.Add           = Add
+translateBinaryOp T.Multiply      = Mult
+translateBinaryOp T.Subtract      = Sub
+translateBinaryOp T.Divide        = undefined
+translateBinaryOp T.Remainder     = undefined
+translateBinaryOp T.BitAnd        = And
+translateBinaryOp T.BitOr         = Or
+translateBinaryOp T.BitXOR        = Xor
+translateBinaryOp T.BitShiftLeft  = ShiftLeft
+translateBinaryOp T.BitShiftRight = ShiftRight
 
