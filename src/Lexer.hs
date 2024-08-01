@@ -62,7 +62,12 @@ scanToken lexer lexeme =
         '*' -> retToken Asterisk
         '/' -> retToken ForwardSlash
         '%' -> retToken Percent
-        '-' -> scanMinusDecrement lexer' lexeme'
+        '^' -> retToken BitXOR
+        '-' -> scanSingleDoubleToken '-' (Minus, Decrement)  lexer' lexeme'
+        '&' -> scanSingleDoubleToken '&' (BitAnd, And)  lexer' lexeme'
+        '|' -> scanSingleDoubleToken '|' (BitOr, Or)  lexer' lexeme'
+        '<' -> scanSingleDoubleToken '<' (LessThan, BitShiftLeft)  lexer' lexeme'
+        '>' -> scanSingleDoubleToken '>' (GreaterThan, BitShiftRight)  lexer' lexeme'
         _ | isSpace symbol -> nextToken lexer'
           | isDigit symbol -> scanConstant lexer' lexeme'
           | isAlpha_ symbol -> scanIdentifier lexer' lexeme'
@@ -106,11 +111,12 @@ scanIdentifier lexer lexeme@(Lexeme lexemeBuffer) =
                   Just keyword -> Right (Keyword keyword, lexer)
                   Nothing      -> Right (Identifier lexemeBuffer, lexer)
 
-scanMinusDecrement :: Lexer -> Lexeme -> Either LexerError (Token, Lexer)
-scanMinusDecrement lexer lexeme =
+scanSingleDoubleToken :: Char -> (Token, Token) -> Lexer -> Lexeme -> Either LexerError (Token, Lexer)
+scanSingleDoubleToken symbol (singleToken, doubleToken) lexer lexeme =
   case nextSymbol lexer lexeme of
-    Just ('-', lexer', _) -> Right (Decrement, lexer')
-    _                     -> Right (Minus, lexer)
+    Just (symbol', lexer', _) | symbol == symbol' -> Right (doubleToken, lexer')
+                              | otherwise -> Right (singleToken, lexer)
+    _ -> Right (singleToken, lexer)
 
 scanUnknownToken :: Lexer -> Lexeme -> Either LexerError (Token, Lexer)
 scanUnknownToken lexer lexeme =

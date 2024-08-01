@@ -52,9 +52,14 @@ instance PrettyPrinter UnaryOperator where
 
 instance PrettyPrinter BinaryOperator where
   pretty :: BinaryOperator -> Text
-  pretty Add       = "+"
-  pretty Subtract  = "-"
-  pretty Multiply  = "*"
-  pretty Divide    = "/"
-  pretty Remainder = "%"
+  pretty Add           = "+"
+  pretty Subtract      = "-"
+  pretty Multiply      = "*"
+  pretty Divide        = "/"
+  pretty Remainder     = "%"
+  pretty BitAnd        = "&"
+  pretty BitOr         = "|"
+  pretty BitXOR        = "^"
+  pretty BitShiftLeft  = "<<"
+  pretty BitShiftRight = ">>"
 

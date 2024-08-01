@@ -19,6 +19,15 @@ data Token = Keyword Keyword
            | Asterisk
            | ForwardSlash
            | Percent
+           | And
+           | BitAnd
+           | Or
+           | BitOr
+           | BitXOR
+           | BitShiftLeft
+           | LessThan
+           | BitShiftRight
+           | GreaterThan
   deriving (Show, Eq)
 
 data Keyword = Int

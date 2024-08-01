@@ -38,16 +38,27 @@ data BinaryOperator = Add
                     | Multiply
                     | Divide
                     | Remainder
+                    | BitAnd
+                    | BitOr
+                    | BitXOR
+                    | BitShiftLeft
+                    | BitShiftRight
   deriving (Show)
 
 type Identifier = Text
 
 precedence :: BinaryOperator -> Int
-precedence Add       = 45
-precedence Subtract  = 45
-precedence Multiply  = 50
-precedence Divide    = 50
-precedence Remainder = 50
+-- https://en.cppreference.com/w/c/language/operator_precedence
+precedence BitOr         = 15
+precedence BitXOR        = 20
+precedence BitAnd        = 25
+precedence BitShiftLeft  = 40
+precedence BitShiftRight = 40
+precedence Add           = 45
+precedence Subtract      = 45
+precedence Multiply      = 50
+precedence Divide        = 50
+precedence Remainder     = 50
 
 class Parser a where
   parse :: [Token] -> Either ParserError (a, [Token])
@@ -129,6 +140,11 @@ instance Parser BinaryOperator where
   parse (TK.Asterisk : ts) = Right (Multiply, ts)
   parse (TK.ForwardSlash : ts) = Right (Divide, ts)
   parse (TK.Percent : ts) = Right (Remainder, ts)
+  parse (TK.BitAnd : ts) = Right (BitAnd, ts)
+  parse (TK.BitOr : ts) = Right (BitOr, ts)
+  parse (TK.BitXOR : ts) = Right (BitXOR, ts)
+  parse (TK.BitShiftLeft : ts) = Right (BitShiftLeft, ts)
+  parse (TK.BitShiftRight : ts) = Right (BitShiftRight, ts)
   parse (t : _) = Left UnexpectedToken {got=t, expected="<binop>"}
   parse [] = Left UnexpectedEOF {expected="<binop>"}
 
