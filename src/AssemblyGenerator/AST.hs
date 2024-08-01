@@ -22,12 +22,22 @@ data Instruction = Mov { movSrc :: Operand
                  | Unary { unaryOp      :: UnaryOperator
                          , unaryOperand :: Operand
                          }
+                 | Binary { binaryOp       :: BinaryOperator
+                          , binaryOperands :: (Operand, Operand)
+                          }
+                 | Idiv Operand
+                 | Cdq
                  | AllocateStack Int
                  | Ret
   deriving (Show)
 
 data UnaryOperator = Neg
                    | Not
+  deriving (Show)
+
+data BinaryOperator = Add
+                    | Sub
+                    | Mult
   deriving (Show)
 
 data Operand = Imm Int
@@ -37,7 +47,9 @@ data Operand = Imm Int
   deriving (Show)
 
 data Reg = AX
+         | DX
          | R10
+         | R11
   deriving (Show)
 
 replacePseudoRegisters :: Program -> (Program, Int)
@@ -60,6 +72,12 @@ replacePseudoRegisters program = (program', lastOffsetVarMap varMap''')
                 (dst', varMap'') = replaceInOperand varMap' dst
         replaceInInstruction varMap Unary {unaryOp=op, unaryOperand=operand} = (Unary {unaryOp=op, unaryOperand=operand'}, varMap')
           where (operand', varMap')  = replaceInOperand varMap operand
+        replaceInInstruction varMap Binary {binaryOp=op, binaryOperands=(operandl, operandr)} = (Binary {binaryOp=op, binaryOperands=operands}, varMap'')
+          where (operandl', varMap')  = replaceInOperand varMap operandl
+                (operandr', varMap'')  = replaceInOperand varMap' operandr
+                operands = (operandl', operandr')
+        replaceInInstruction varMap (Idiv operand) = (Idiv operand', varMap')
+          where (operand', varMap') = replaceInOperand varMap operand
         replaceInInstruction varMap instruction = (instruction, varMap)
 
         replaceInOperand :: VarMap -> Operand -> (Operand, VarMap)
@@ -81,6 +99,17 @@ fixInstructions (program, lastOffset) = fixProgram program
         fixInstruction Mov {movSrc=Stack src, movDst=Stack dst} = [ Mov {movSrc=Stack src, movDst=Reg R10}
                                                                   , Mov {movSrc=Reg R10, movDst=Stack dst}
                                                                   ]
+        fixInstruction (Idiv imm@(Imm _)) = [ Mov {movSrc=imm, movDst=Reg R10}
+                                            , Idiv (Reg R10)
+                                            ]
+        fixInstruction Binary {binaryOp=Add, binaryOperands=(Stack operandl, operandr@(Stack _))} = [ Mov {movSrc=Stack operandl, movDst=Reg R10}
+                                                                                                    , Binary {binaryOp=Add, binaryOperands=(Reg R10, operandr)}]
+        fixInstruction Binary {binaryOp=Sub, binaryOperands=(operandl@(Stack _), operandr@(Stack _))} = [ Mov {movSrc=operandl, movDst=Reg R10}
+                                                                                                        , Binary {binaryOp=Sub, binaryOperands=(Reg R10, operandr)}]
+        fixInstruction Binary {binaryOp=Mult, binaryOperands=(operandl, operandr@(Stack _))} = [ Mov {movSrc=operandr, movDst=Reg R11}
+                                                                                               , Binary {binaryOp=Mult, binaryOperands=(operandl, Reg R11)}
+                                                                                               , Mov {movSrc=Reg R11, movDst=operandr}
+                                                                                               ]
         fixInstruction i = [i]
 
 type VarMap = (Map Identifier Int, Int)
@@ -121,6 +150,32 @@ translateInstruction (T.Unary { T.unaryOperator=op, T.unarySrc=src, T.unaryDst=d
   where src' = translateOperand src
         dst' = translateOperand dst
         op' = translateUnaryOp op
+translateInstruction (T.Binary { T.binaryOperator=T.Divide, T.binarySrcs=(srcl, srcr), T.binaryDst=dst} : is) =
+  [ Mov {movSrc=srcl', movDst=Reg AX}
+  , Cdq
+  , Idiv srcr'
+  , Mov {movSrc=Reg AX, movDst=dst'}
+  ] ++ translateInstruction is
+  where srcl' = translateOperand srcl
+        srcr' = translateOperand srcr
+        dst' = translateOperand dst
+translateInstruction (T.Binary { T.binaryOperator=T.Remainder, T.binarySrcs=(srcl, srcr), T.binaryDst=dst} : is) =
+  [ Mov {movSrc=srcl', movDst=Reg AX}
+  , Cdq
+  , Idiv srcr'
+  , Mov {movSrc=Reg DX, movDst=dst'}
+  ] ++ translateInstruction is
+  where srcl' = translateOperand srcl
+        srcr' = translateOperand srcr
+        dst' = translateOperand dst
+translateInstruction (T.Binary { T.binaryOperator=op, T.binarySrcs=(srcl, srcr), T.binaryDst=dst} : is) =
+  [ Mov {movSrc=srcl', movDst=dst'}
+  , Binary {binaryOp=op', binaryOperands=(srcr', dst')}
+  ] ++ translateInstruction is
+  where srcl' = translateOperand srcl
+        srcr' = translateOperand srcr
+        dst' = translateOperand dst
+        op' = translateBinaryOp op
 
 translateOperand :: T.Val -> Operand
 translateOperand (T.Const v) = Imm v
@@ -129,4 +184,10 @@ translateOperand (T.Var i)   = Pseudo i
 translateUnaryOp :: T.UnaryOperator -> UnaryOperator
 translateUnaryOp T.Complement = Not
 translateUnaryOp T.Negate     = Neg
+
+translateBinaryOp :: T.BinaryOperator -> BinaryOperator
+translateBinaryOp T.Add      = Add
+translateBinaryOp T.Multiply = Mult
+translateBinaryOp T.Subtract = Sub
+translateBinaryOp _          = undefined
 
