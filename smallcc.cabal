@@ -66,6 +66,7 @@ library
     Lexer
     MyLib
     Parser
+    Parser.PrettyPrint
     Tacky
 
   -- Modules included in this library but not exported.
