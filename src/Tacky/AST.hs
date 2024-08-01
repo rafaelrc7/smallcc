@@ -30,10 +30,21 @@ data Instruction = Return Val
                          , unarySrc      :: Val
                          , unaryDst      :: Val
                          }
+                 | Binary { binaryOperator :: BinaryOperator
+                          , binarySrcs     :: (Val, Val)
+                          , binaryDst      :: Val
+                          }
   deriving (Show)
 
 data UnaryOperator = Complement
                    | Negate
+  deriving (Show)
+
+data BinaryOperator = Add
+                    | Subtract
+                    | Multiply
+                    | Divide
+                    | Remainder
   deriving (Show)
 
 data Val = Const Int
@@ -55,15 +66,28 @@ translateStatement (P.Return expr) = expInstructions ++ [Return expVal]
 
 translateExp :: State -> P.Exp -> ([Instruction], Val, State)
 translateExp s (P.Constant (P.CInt val)) = ([], Const val, s)
-translateExp state (P.Unary op expr) = (instructions, dst, state'')
-  where (exprInstructions, src, state') = translateExp state expr
-        (dst, state'') = newTmpVar state'
+translateExp s (P.Unary op expr) = (instructions, dst, s'')
+  where (exprInstructions, src, s') = translateExp s expr
+        (dst, s'') = newTmpVar s'
         instruction = Unary {unaryOperator=translateUnaryOp op, unarySrc=src, unaryDst=dst}
         instructions = exprInstructions ++ [instruction]
+translateExp s (P.Binary op exprl exprr) = (instructions, dst, s''')
+  where (exprlInstructions, srcl, s') = translateExp s exprl
+        (exprrInstructions, srcr, s'') = translateExp s' exprr
+        (dst, s''') = newTmpVar s''
+        instruction = Binary {binaryOperator=translateBinaryOp op, binarySrcs=(srcl, srcr), binaryDst=dst}
+        instructions = exprlInstructions ++ exprrInstructions ++ [instruction]
 
 translateUnaryOp :: P.UnaryOperator -> UnaryOperator
 translateUnaryOp P.Complement = Complement
 translateUnaryOp P.Negate     = Negate
+
+translateBinaryOp :: P.BinaryOperator -> BinaryOperator
+translateBinaryOp P.Add       = Add
+translateBinaryOp P.Subtract  = Subtract
+translateBinaryOp P.Multiply  = Multiply
+translateBinaryOp P.Divide    = Divide
+translateBinaryOp P.Remainder = Remainder
 
 newTmpVar :: State -> (Val, State)
 newTmpVar State{stateLastTmp=lastTmp} = (Var newTmpLabel, State{stateLastTmp=newTmp})
