@@ -3,17 +3,20 @@
 
 module Tacky.AST where
 
+import           Data.Maybe (fromMaybe)
 import           Data.Text  (Text)
 import qualified Data.Text  as T
 
 import qualified Parser.AST as P
 
-newtype State = State {
-  stateLastTmp :: Int
-}
+data State = State { stateLastTmp   :: Int
+                   , stateLastLabel :: Int
+                   }
 
 emptyState :: State
-emptyState = State {stateLastTmp=0}
+emptyState = State { stateLastTmp = 0
+                   , stateLastLabel = 0
+                   }
 
 type Identifier = Text
 
@@ -34,22 +37,36 @@ data Instruction = Return Val
                           , binarySrcs     :: (Val, Val)
                           , binaryDst      :: Val
                           }
+                 | Copy { copySrc :: Val
+                        , copyDst :: Val
+                        }
+                 | Jump Identifier
+                 | JumpIfZero Val Identifier
+                 | JumpIfNotZero Val Identifier
+                 | Label Identifier
   deriving (Show)
 
 data UnaryOperator = Complement
                    | Negate
+                   | Not
   deriving (Show)
 
-data BinaryOperator = Add
+data BinaryOperator = BitOr
+                    | BitXOR
+                    | BitAnd
+                    | Equals
+                    | NotEquals
+                    | Less
+                    | LessOrEqual
+                    | Greater
+                    | GreaterOrEqual
+                    | BitShiftLeft
+                    | BitShiftRight
+                    | Add
                     | Subtract
                     | Multiply
                     | Divide
                     | Remainder
-                    | BitAnd
-                    | BitOr
-                    | BitXOR
-                    | BitShiftLeft
-                    | BitShiftRight
   deriving (Show)
 
 data Val = Const Int
@@ -76,6 +93,8 @@ translateExp s (P.Unary op expr) = (instructions, dst, s'')
         (dst, s'') = newTmpVar s'
         instruction = Unary {unaryOperator=translateUnaryOp op, unarySrc=src, unaryDst=dst}
         instructions = exprInstructions ++ [instruction]
+translateExp s (P.Binary P.And expr1 expr2) = translateAnd s (expr1, expr2)
+translateExp s (P.Binary P.Or  expr1 expr2) = translateOr  s (expr1, expr2)
 translateExp s (P.Binary op exprl exprr) = (instructions, dst, s''')
   where (exprlInstructions, srcl, s') = translateExp s exprl
         (exprrInstructions, srcr, s'') = translateExp s' exprr
@@ -83,24 +102,80 @@ translateExp s (P.Binary op exprl exprr) = (instructions, dst, s''')
         instruction = Binary {binaryOperator=translateBinaryOp op, binarySrcs=(srcl, srcr), binaryDst=dst}
         instructions = exprlInstructions ++ exprrInstructions ++ [instruction]
 
+translateOr :: State -> (P.Exp, P.Exp) -> ([Instruction], Val, State)
+translateOr s (expr1,  expr2) = (instructions, resultVar, s''''')
+  where (expr1Instructions, val1, s') = translateExp s expr1
+        (expr2Instructions, val2, s'') = translateExp s' expr2
+        (trueLabel, s''') = newLabel (Just "OrTrue") s''
+        (endLabel, s'''') = newLabel (Just "OrEnd") s'''
+        (resultVar, s''''') = newVar (Just "OrResult") s''''
+        instructions = expr1Instructions
+                    ++ [ JumpIfNotZero val1 trueLabel ]
+                    ++ expr2Instructions
+                    ++ [ JumpIfNotZero val2 trueLabel
+                       , Copy {copySrc=Const 0, copyDst=resultVar}
+                       , Jump endLabel
+                       , Label trueLabel
+                       , Copy {copySrc=Const 1, copyDst=resultVar}
+                       , Label endLabel
+                       ]
+
+translateAnd :: State -> (P.Exp, P.Exp) -> ([Instruction], Val, State)
+translateAnd s (expr1,  expr2) = (instructions, resultVar, s''''')
+  where (expr1Instructions, val1, s') = translateExp s expr1
+        (expr2Instructions, val2, s'') = translateExp s' expr2
+        (falseLabel, s''') = newLabel (Just "AndFalse") s''
+        (endLabel, s'''') = newLabel (Just "AndEnd") s'''
+        (resultVar, s''''') = newVar (Just "AndResult") s''''
+        instructions = expr1Instructions
+                    ++ [ JumpIfZero val1 falseLabel ]
+                    ++ expr2Instructions
+                    ++ [ JumpIfZero val2 falseLabel
+                       , Copy {copySrc=Const 1, copyDst=resultVar}
+                       , Jump endLabel
+                       , Label falseLabel
+                       , Copy {copySrc=Const 0, copyDst=resultVar}
+                       , Label endLabel
+                       ]
+
 translateUnaryOp :: P.UnaryOperator -> UnaryOperator
 translateUnaryOp P.Complement = Complement
 translateUnaryOp P.Negate     = Negate
+translateUnaryOp P.Not        = Not
 
 translateBinaryOp :: P.BinaryOperator -> BinaryOperator
-translateBinaryOp P.Add           = Add
-translateBinaryOp P.Subtract      = Subtract
-translateBinaryOp P.Multiply      = Multiply
-translateBinaryOp P.Divide        = Divide
-translateBinaryOp P.Remainder     = Remainder
-translateBinaryOp P.BitAnd        = BitAnd
-translateBinaryOp P.BitOr         = BitOr
-translateBinaryOp P.BitXOR        = BitXOR
-translateBinaryOp P.BitShiftLeft  = BitShiftLeft
-translateBinaryOp P.BitShiftRight = BitShiftRight
+translateBinaryOp P.BitOr          = BitOr
+translateBinaryOp P.BitXOR         = BitXOR
+translateBinaryOp P.BitAnd         = BitAnd
+translateBinaryOp P.Equals         = Equals
+translateBinaryOp P.NotEquals      = NotEquals
+translateBinaryOp P.Less           = Less
+translateBinaryOp P.LessOrEqual    = LessOrEqual
+translateBinaryOp P.Greater        = Greater
+translateBinaryOp P.GreaterOrEqual = GreaterOrEqual
+translateBinaryOp P.BitShiftLeft   = BitShiftLeft
+translateBinaryOp P.BitShiftRight  = BitShiftRight
+translateBinaryOp P.Add            = Add
+translateBinaryOp P.Subtract       = Subtract
+translateBinaryOp P.Multiply       = Multiply
+translateBinaryOp P.Divide         = Divide
+translateBinaryOp P.Remainder      = Remainder
+
+translateBinaryOp P.And            = undefined
+translateBinaryOp P.Or             = undefined
+
+newVar :: Maybe Text -> State -> (Val, State)
+newVar label state@State{ stateLastTmp = lastTmp } = (Var newTmpLabel, state{ stateLastTmp = newTmp })
+  where varLabel = T.snoc (fromMaybe "tmp" label) '.'
+        newTmp = lastTmp + 1
+        newTmpLabel = T.append varLabel $ T.pack $ show newTmp
 
 newTmpVar :: State -> (Val, State)
-newTmpVar State{stateLastTmp=lastTmp} = (Var newTmpLabel, State{stateLastTmp=newTmp})
-  where newTmp = lastTmp + 1
-        newTmpLabel = T.append "tmp." $ T.pack $ show newTmp
+newTmpVar = newVar Nothing
+
+newLabel :: Maybe Text -> State -> (Identifier, State)
+newLabel caption state = (label, state{ stateLastLabel = labelNumber })
+  where labelCaption = fromMaybe "l" caption
+        labelNumber = stateLastLabel state + 1
+        label = T.append labelCaption $ T.pack $ show labelNumber
 
