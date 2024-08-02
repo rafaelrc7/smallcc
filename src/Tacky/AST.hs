@@ -175,7 +175,8 @@ newTmpVar = newVar Nothing
 
 newLabel :: Maybe Text -> State -> (Identifier, State)
 newLabel caption state = (label, state{ stateLastLabel = labelNumber })
-  where labelCaption = fromMaybe "l" caption
-        labelNumber = stateLastLabel state + 1
-        label = T.append labelCaption $ T.pack $ show labelNumber
+  where labelNumber = stateLastLabel state + 1
+        labelNumberText = T.pack $ show labelNumber
+        label = case caption of Nothing -> labelNumberText
+                                Just labelCaption -> labelCaption `T.append` labelNumberText
 

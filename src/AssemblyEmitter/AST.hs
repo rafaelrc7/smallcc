@@ -32,10 +32,18 @@ instance Assembly Instruction where
              \\npopq %rbp\
              \\nret"
   emit Unary {unaryOperand=operand, unaryOp=op} = T.intercalate " " [emit op, emit operand]
+  emit Binary {binaryOperands=(Reg reg, op2), binaryOp=op@ShiftLeft} = emit op `T.append` " " `T.append` emitReg B1 reg `T.append` ", " `T.append` emit op2
+  emit Binary {binaryOperands=(Reg reg, op2), binaryOp=op@ShiftRight} = emit op `T.append` " " `T.append` emitReg B1 reg `T.append` ", " `T.append` emit op2
   emit Binary {binaryOperands=(op1, op2), binaryOp=op} = emit op `T.append` " " `T.append` emit op1 `T.append` ", " `T.append` emit op2
   emit (Idiv operand) = "idivl " `T.append` emit operand
   emit Cdq = "cdq"
   emit (AllocateStack offset) = "subq " `T.append` literal offset `T.append` ", %rsp"
+  emit (Cmp op1 op2) = "cmpl " `T.append` emit op1 `T.append` ", " `T.append` emit op2
+  emit (Jmp label) = "jmp .L" `T.append` label
+  emit (JmpCC cond label) = "j" `T.append` emit cond `T.append` " .L" `T.append` label
+  emit (SetCC cond (Reg reg)) = "set" `T.append` emit cond `T.append` " " `T.append` emitReg B1 reg
+  emit (SetCC cond operand) = "set" `T.append` emit cond `T.append` " " `T.append` emit operand
+  emit (Label label) = ".L" `T.append` label `T.append` ":"
 
 instance Assembly Operand where
   emit :: Operand -> Text
@@ -44,14 +52,34 @@ instance Assembly Operand where
   emit (Imm v)        = literal v
   emit _              = ""
 
+instance Assembly Conditional where
+  emit :: Conditional -> Text
+  emit E  = "e"
+  emit NE = "ne"
+  emit G  = "g"
+  emit GE = "ge"
+  emit L  = "l"
+  emit LE = "le"
+
+data Size = B1
+          | B4
+
 instance Assembly Reg where
   emit :: Reg -> Text
-  emit AX  = "%eax"
-  emit DX  = "%edx"
-  emit CL  = "%cl"
-  emit CX  = "%ecx"
-  emit R10 = "%r10d"
-  emit R11 = "%r11d"
+  emit = emitReg B4
+
+emitReg :: Size -> Reg -> Text
+emitReg B1 AX  = "%al"
+emitReg B1 DX  = "%dl"
+emitReg B1 CX  = "%cl"
+emitReg B1 R10 = "%r10b"
+emitReg B1 R11 = "%r11b"
+
+emitReg B4 AX  = "%eax"
+emitReg B4 DX  = "%edx"
+emitReg B4 CX  = "%ecx"
+emitReg B4 R10 = "%r10d"
+emitReg B4 R11 = "%r11d"
 
 instance Assembly UnaryOperator where
   emit :: UnaryOperator -> Text

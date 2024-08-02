@@ -25,8 +25,13 @@ data Instruction = Mov { movSrc :: Operand
                  | Binary { binaryOp       :: BinaryOperator
                           , binaryOperands :: (Operand, Operand)
                           }
+                 | Cmp Operand Operand
                  | Idiv Operand
                  | Cdq
+                 | Jmp Identifier
+                 | JmpCC Conditional Identifier
+                 | SetCC Conditional Operand
+                 | Label Identifier
                  | AllocateStack Int
                  | Ret
   deriving (Show)
@@ -51,9 +56,16 @@ data Operand = Imm Int
              | Stack Int
   deriving (Show)
 
+data Conditional = E
+                 | NE
+                 | G
+                 | GE
+                 | L
+                 | LE
+  deriving (Show)
+
 data Reg = AX
          | DX
-         | CL
          | CX
          | R10
          | R11
@@ -85,6 +97,11 @@ replacePseudoRegisters program = (program', lastOffsetVarMap varMap''')
                 operands = (operandl', operandr')
         replaceInInstruction varMap (Idiv operand) = (Idiv operand', varMap')
           where (operand', varMap') = replaceInOperand varMap operand
+        replaceInInstruction varMap (Cmp op1 op2) = (Cmp op1' op2', varMap'')
+          where (op1', varMap') = replaceInOperand varMap op1
+                (op2', varMap'') = replaceInOperand varMap' op2
+        replaceInInstruction varMap (SetCC cond op) = (SetCC cond op', varMap')
+          where (op', varMap') = replaceInOperand varMap op
         replaceInInstruction varMap instruction = (instruction, varMap)
 
         replaceInOperand :: VarMap -> Operand -> (Operand, VarMap)
@@ -114,13 +131,19 @@ fixInstructions (program, lastOffset) = fixProgram program
                                                                                                   , Mov {movSrc=Reg R11, movDst=operandr}
                                                                                                   ]
         fixInstruction Binary {binaryOp=op@ShiftLeft, binaryOperands=(operandl@(Stack _), operandr)} = [ Mov {movSrc=operandl, movDst=Reg CX}
-                                                                                                       , Binary {binaryOp=op, binaryOperands=(Reg CL, operandr)}
+                                                                                                       , Binary {binaryOp=op, binaryOperands=(Reg CX, operandr)}
                                                                                                        ]
         fixInstruction Binary {binaryOp=op@ShiftRight, binaryOperands=(operandl@(Stack _), operandr)} = [ Mov {movSrc=operandl, movDst=Reg CX}
-                                                                                                        , Binary {binaryOp=op, binaryOperands=(Reg CL, operandr)}
+                                                                                                        , Binary {binaryOp=op, binaryOperands=(Reg CX, operandr)}
                                                                                                         ]
         fixInstruction Binary {binaryOp=op, binaryOperands=(operandl@(Stack _), operandr@(Stack _))} = [ Mov {movSrc=operandl, movDst=Reg R10}
                                                                                                        , Binary {binaryOp=op, binaryOperands=(Reg R10, operandr)}]
+        fixInstruction (Cmp op1@(Stack _) op2@(Stack _)) = [ Mov {movSrc=op1, movDst=Reg R10}
+                                                           , Cmp (Reg R10) op2
+                                                           ]
+        fixInstruction (Cmp op1 op2@(Imm _)) = [ Mov {movSrc=op2, movDst=Reg R11}
+                                               , Cmp op1 (Reg R11)
+                                               ]
         fixInstruction i = [i]
 
 type VarMap = (Map Identifier Int, Int)
@@ -154,6 +177,13 @@ translateInstruction [] = []
 translateInstruction (T.Return expr : is) = [ Mov {movSrc=translateOperand expr, movDst=Reg AX}
                                             , Ret
                                             ] ++ translateInstruction is
+translateInstruction (T.Unary { T.unaryOperator=T.Not, T.unarySrc=src, T.unaryDst=dst} : is) =
+  [ Cmp (Imm 0) src'
+  , Mov (Imm 0) dst'
+  , SetCC E dst'
+  ] ++ translateInstruction is
+  where src' = translateOperand src
+        dst' = translateOperand dst
 translateInstruction (T.Unary { T.unaryOperator=op, T.unarySrc=src, T.unaryDst=dst} : is) =
   [ Mov {movSrc=src', movDst=dst'}
   , Unary {unaryOp=op', unaryOperand=dst'}
@@ -161,6 +191,18 @@ translateInstruction (T.Unary { T.unaryOperator=op, T.unarySrc=src, T.unaryDst=d
   where src' = translateOperand src
         dst' = translateOperand dst
         op' = translateUnaryOp op
+translateInstruction (T.Binary { T.binaryOperator=op@T.Equals, T.binarySrcs=(src1, src2), T.binaryDst=dst} : is) =
+  translateCmpInstruction op src1 src2 dst ++ translateInstruction is
+translateInstruction (T.Binary { T.binaryOperator=op@T.NotEquals, T.binarySrcs=(src1, src2), T.binaryDst=dst} : is) =
+  translateCmpInstruction op src1 src2 dst ++ translateInstruction is
+translateInstruction (T.Binary { T.binaryOperator=op@T.Less, T.binarySrcs=(src1, src2), T.binaryDst=dst} : is) =
+  translateCmpInstruction op src1 src2 dst ++ translateInstruction is
+translateInstruction (T.Binary { T.binaryOperator=op@T.LessOrEqual, T.binarySrcs=(src1, src2), T.binaryDst=dst} : is) =
+  translateCmpInstruction op src1 src2 dst ++ translateInstruction is
+translateInstruction (T.Binary { T.binaryOperator=op@T.Greater, T.binarySrcs=(src1, src2), T.binaryDst=dst} : is) =
+  translateCmpInstruction op src1 src2 dst ++ translateInstruction is
+translateInstruction (T.Binary { T.binaryOperator=op@T.GreaterOrEqual, T.binarySrcs=(src1, src2), T.binaryDst=dst} : is) =
+  translateCmpInstruction op src1 src2 dst ++ translateInstruction is
 translateInstruction (T.Binary { T.binaryOperator=T.Divide, T.binarySrcs=(srcl, srcr), T.binaryDst=dst} : is) =
   [ Mov {movSrc=srcl', movDst=Reg AX}
   , Cdq
@@ -187,6 +229,40 @@ translateInstruction (T.Binary { T.binaryOperator=op, T.binarySrcs=(srcl, srcr),
         srcr' = translateOperand srcr
         dst' = translateOperand dst
         op' = translateBinaryOp op
+translateInstruction (T.Jump label : is) =
+  Jmp label : translateInstruction is
+translateInstruction (T.JumpIfZero val label : is) =
+  [ Cmp (Imm 0) (translateOperand val)
+  , JmpCC E label
+  ] ++ translateInstruction is
+translateInstruction (T.JumpIfNotZero val label : is) =
+  [ Cmp (Imm 0) (translateOperand val)
+  , JmpCC NE label
+  ] ++ translateInstruction is
+translateInstruction (T.Copy src dst : is) =
+  Mov (translateOperand src) (translateOperand dst) : translateInstruction is
+translateInstruction (T.Label label : is) =
+  Label label : translateInstruction is
+
+translateCmpInstruction :: T.BinaryOperator -> T.Val -> T.Val -> T.Val -> [Instruction]
+translateCmpInstruction op src1 src2 dst =
+  [ Cmp src2' src1'
+  , Mov (Imm 0) dst'
+  , SetCC cond dst'
+  ]
+  where src1' = translateOperand src1
+        src2' = translateOperand src2
+        dst' = translateOperand dst
+        cond = translateCmpOp op
+
+translateCmpOp :: T.BinaryOperator -> Conditional
+translateCmpOp T.Equals         = E
+translateCmpOp T.NotEquals      = NE
+translateCmpOp T.Less           = L
+translateCmpOp T.LessOrEqual    = LE
+translateCmpOp T.Greater        = G
+translateCmpOp T.GreaterOrEqual = GE
+translateCmpOp _                = undefined
 
 translateOperand :: T.Val -> Operand
 translateOperand (T.Const v) = Imm v
@@ -195,16 +271,23 @@ translateOperand (T.Var i)   = Pseudo i
 translateUnaryOp :: T.UnaryOperator -> UnaryOperator
 translateUnaryOp T.Complement = Not
 translateUnaryOp T.Negate     = Neg
+translateUnaryOp T.Not        = undefined
 
 translateBinaryOp :: T.BinaryOperator -> BinaryOperator
-translateBinaryOp T.Add           = Add
-translateBinaryOp T.Multiply      = Mult
-translateBinaryOp T.Subtract      = Sub
-translateBinaryOp T.Divide        = undefined
-translateBinaryOp T.Remainder     = undefined
-translateBinaryOp T.BitAnd        = And
-translateBinaryOp T.BitOr         = Or
-translateBinaryOp T.BitXOR        = Xor
-translateBinaryOp T.BitShiftLeft  = ShiftLeft
-translateBinaryOp T.BitShiftRight = ShiftRight
+translateBinaryOp T.BitOr          = Or
+translateBinaryOp T.BitXOR         = Xor
+translateBinaryOp T.BitAnd         = And
+translateBinaryOp T.Equals         = undefined
+translateBinaryOp T.NotEquals      = undefined
+translateBinaryOp T.Less           = undefined
+translateBinaryOp T.LessOrEqual    = undefined
+translateBinaryOp T.Greater        = undefined
+translateBinaryOp T.GreaterOrEqual = undefined
+translateBinaryOp T.BitShiftLeft   = ShiftLeft
+translateBinaryOp T.BitShiftRight  = ShiftRight
+translateBinaryOp T.Add            = Add
+translateBinaryOp T.Subtract       = Sub
+translateBinaryOp T.Multiply       = Mult
+translateBinaryOp T.Divide         = undefined
+translateBinaryOp T.Remainder      = undefined
 
