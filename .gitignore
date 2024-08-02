@@ -3,4 +3,7 @@
 /dist-newstyle/
 /main
 /main.*
+/tags
+*.out
+*.log
 
