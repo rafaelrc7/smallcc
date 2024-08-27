@@ -34,6 +34,7 @@ data Token = Keyword Keyword
            | Not
            | NotEqualsTo
            | EqualsTo
+           | Equals
   deriving (Show, Eq)
 
 data Keyword = Int

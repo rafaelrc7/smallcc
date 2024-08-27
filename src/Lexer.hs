@@ -63,7 +63,7 @@ scanToken lexer lexeme =
         '/' -> retToken ForwardSlash
         '%' -> retToken Percent
         '^' -> retToken BitXOR
-        '=' -> scanCompoundToken' Nothing        [('=', EqualsTo)]
+        '=' -> scanCompoundToken' (Just Equals)  [('=', EqualsTo)]
         '!' -> scanCompoundToken' (Just Not)     [('=', NotEqualsTo)]
         '+' -> scanCompoundToken' (Just Plus)    [('+', Increment)]
         '-' -> scanCompoundToken' (Just Minus)   [('-', Decrement)]
