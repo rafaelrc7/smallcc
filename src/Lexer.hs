@@ -59,13 +59,13 @@ scanToken lexer lexeme =
         '}' -> retToken CloseBrace
         ';' -> retToken Semicolon
         '~' -> retToken Complement
-        '+' -> retToken Plus
         '*' -> retToken Asterisk
         '/' -> retToken ForwardSlash
         '%' -> retToken Percent
         '^' -> retToken BitXOR
-        '=' -> scanCompoundToken' Nothing        [('=', Equals)]
-        '!' -> scanCompoundToken' (Just Not)     [('=', NotEquals)]
+        '=' -> scanCompoundToken' Nothing        [('=', EqualsTo)]
+        '!' -> scanCompoundToken' (Just Not)     [('=', NotEqualsTo)]
+        '+' -> scanCompoundToken' (Just Plus)    [('+', Increment)]
         '-' -> scanCompoundToken' (Just Minus)   [('-', Decrement)]
         '&' -> scanCompoundToken' (Just BitAnd)  [('&', And)]
         '|' -> scanCompoundToken' (Just BitOr)   [('|', Or)]

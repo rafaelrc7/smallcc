@@ -191,9 +191,9 @@ translateInstruction (T.Unary { T.unaryOperator=op, T.unarySrc=src, T.unaryDst=d
   where src' = translateOperand src
         dst' = translateOperand dst
         op' = translateUnaryOp op
-translateInstruction (T.Binary { T.binaryOperator=op@T.Equals, T.binarySrcs=(src1, src2), T.binaryDst=dst} : is) =
+translateInstruction (T.Binary { T.binaryOperator=op@T.EqualsTo, T.binarySrcs=(src1, src2), T.binaryDst=dst} : is) =
   translateCmpInstruction op src1 src2 dst ++ translateInstruction is
-translateInstruction (T.Binary { T.binaryOperator=op@T.NotEquals, T.binarySrcs=(src1, src2), T.binaryDst=dst} : is) =
+translateInstruction (T.Binary { T.binaryOperator=op@T.NotEqualsTo, T.binarySrcs=(src1, src2), T.binaryDst=dst} : is) =
   translateCmpInstruction op src1 src2 dst ++ translateInstruction is
 translateInstruction (T.Binary { T.binaryOperator=op@T.Less, T.binarySrcs=(src1, src2), T.binaryDst=dst} : is) =
   translateCmpInstruction op src1 src2 dst ++ translateInstruction is
@@ -256,8 +256,8 @@ translateCmpInstruction op src1 src2 dst =
         cond = translateCmpOp op
 
 translateCmpOp :: T.BinaryOperator -> Conditional
-translateCmpOp T.Equals         = E
-translateCmpOp T.NotEquals      = NE
+translateCmpOp T.EqualsTo       = E
+translateCmpOp T.NotEqualsTo    = NE
 translateCmpOp T.Less           = L
 translateCmpOp T.LessOrEqual    = LE
 translateCmpOp T.Greater        = G
@@ -277,8 +277,8 @@ translateBinaryOp :: T.BinaryOperator -> BinaryOperator
 translateBinaryOp T.BitOr          = Or
 translateBinaryOp T.BitXOR         = Xor
 translateBinaryOp T.BitAnd         = And
-translateBinaryOp T.Equals         = undefined
-translateBinaryOp T.NotEquals      = undefined
+translateBinaryOp T.EqualsTo       = undefined
+translateBinaryOp T.NotEqualsTo    = undefined
 translateBinaryOp T.Less           = undefined
 translateBinaryOp T.LessOrEqual    = undefined
 translateBinaryOp T.Greater        = undefined

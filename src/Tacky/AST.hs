@@ -54,8 +54,8 @@ data UnaryOperator = Complement
 data BinaryOperator = BitOr
                     | BitXOR
                     | BitAnd
-                    | Equals
-                    | NotEquals
+                    | EqualsTo
+                    | NotEqualsTo
                     | Less
                     | LessOrEqual
                     | Greater
@@ -147,8 +147,8 @@ translateBinaryOp :: P.BinaryOperator -> BinaryOperator
 translateBinaryOp P.BitOr          = BitOr
 translateBinaryOp P.BitXOR         = BitXOR
 translateBinaryOp P.BitAnd         = BitAnd
-translateBinaryOp P.Equals         = Equals
-translateBinaryOp P.NotEquals      = NotEquals
+translateBinaryOp P.EqualsTo       = EqualsTo
+translateBinaryOp P.NotEqualsTo    = NotEqualsTo
 translateBinaryOp P.Less           = Less
 translateBinaryOp P.LessOrEqual    = LessOrEqual
 translateBinaryOp P.Greater        = Greater

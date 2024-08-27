@@ -46,8 +46,8 @@ data BinaryOperator = Add
                     | BitShiftRight
                     | And
                     | Or
-                    | Equals
-                    | NotEquals
+                    | EqualsTo
+                    | NotEqualsTo
                     | Less
                     | LessOrEqual
                     | Greater
@@ -63,8 +63,8 @@ precedence And            = 10
 precedence BitOr          = 15
 precedence BitXOR         = 20
 precedence BitAnd         = 25
-precedence Equals         = 30
-precedence NotEquals      = 30
+precedence EqualsTo       = 30
+precedence NotEqualsTo    = 30
 precedence Less           = 35
 precedence LessOrEqual    = 35
 precedence Greater        = 35
@@ -160,8 +160,8 @@ instance Parser BinaryOperator where
   parse (TK.BitOr : ts) = Right (BitOr, ts)
   parse (TK.BitXOR : ts) = Right (BitXOR, ts)
   parse (TK.BitAnd : ts) = Right (BitAnd, ts)
-  parse (TK.Equals : ts) = Right (Equals, ts)
-  parse (TK.NotEquals : ts) = Right (NotEquals, ts)
+  parse (TK.EqualsTo : ts) = Right (EqualsTo, ts)
+  parse (TK.NotEqualsTo : ts) = Right (NotEqualsTo, ts)
   parse (TK.Less : ts) = Right (Less, ts)
   parse (TK.LessOrEqual : ts) = Right (LessOrEqual, ts)
   parse (TK.Greater : ts) = Right (Greater, ts)

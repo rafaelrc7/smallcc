@@ -14,6 +14,7 @@ data Token = Keyword Keyword
            | Semicolon
            | Complement
            | Decrement
+           | Increment
            | Minus
            | Plus
            | Asterisk
@@ -31,8 +32,8 @@ data Token = Keyword Keyword
            | GreaterOrEqual
            | BitShiftRight
            | Not
-           | NotEquals
-           | Equals
+           | NotEqualsTo
+           | EqualsTo
   deriving (Show, Eq)
 
 data Keyword = Int
