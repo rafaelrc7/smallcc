@@ -20,13 +20,13 @@ class PrettyPrinter a where
 
 instance PrettyPrinter Program where
   pretty :: Program -> Text
-  pretty (Program f) = "Program\n" `T.append`  f'
+  pretty (Program f) = "Program\n" <>  f'
     where f' = identLines $ pretty f
 
 instance PrettyPrinter FunctionDefinition where
   pretty :: FunctionDefinition -> Text
-  pretty (Function {funcBody=body, funcName=name}) = "Function '" `T.append` name `T.append` "'\n"
-                                          `T.append` body'
+  pretty (Function {funcBody=body, funcName=name}) = "Function '" <> name <> "'\n"
+                                          <> body'
     where body' = T.concat $ map (identLines . pretty) body
 
 instance PrettyPrinter BlockItem where
@@ -36,24 +36,24 @@ instance PrettyPrinter BlockItem where
 
 instance PrettyPrinter Statement where
   pretty :: Statement -> Text
-  pretty (Return expr) = ret `T.append` expr' `T.append` ";\n"
+  pretty (Return expr) = ret <> expr' <> ";\n"
     where ret = "return "
           expr' = pretty expr
-  pretty (Expression expr) = pretty expr `T.append` ";\n"
+  pretty (Expression expr) = pretty expr <> ";\n"
   pretty Null = ";\n"
 
 instance PrettyPrinter Declaration where
   pretty :: Declaration -> Text
-  pretty (Declaration name Nothing) = "int " `T.append` name `T.append` ";\n";
-  pretty (Declaration name (Just i)) = "int " `T.append` name `T.append` " = " `T.append` pretty i `T.append` ";\n";
+  pretty (Declaration name Nothing) = "int " <> name <> ";\n";
+  pretty (Declaration name (Just i)) = "int " <> name <> " = " <> pretty i <> ";\n";
 
 instance PrettyPrinter Exp where
   pretty :: Exp -> Text
   pretty (Constant val) = pretty val
-  pretty (Unary op expr) = pretty op `T.append` pretty expr
-  pretty (Binary op exprl exprr) = "(" `T.append` T.intercalate " " [pretty exprl, pretty op, pretty exprr] `T.append` ")"
+  pretty (Unary op expr) = pretty op <> pretty expr
+  pretty (Binary op exprl exprr) = "(" <> T.intercalate " " [pretty exprl, pretty op, pretty exprr] <> ")"
   pretty (Var var) = var
-  pretty (Assignment lvalue rvalue) = "(" `T.append` lvalue' `T.append` " = " `T.append` rvalue' `T.append` ")"
+  pretty (Assignment lvalue rvalue) = "(" <> lvalue' <> " = " <> rvalue' <> ")"
     where lvalue' = pretty lvalue
           rvalue' = pretty rvalue
 

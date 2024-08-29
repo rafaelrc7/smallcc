@@ -13,42 +13,42 @@ class Assembly a where
 
 instance Assembly Program where
   emit :: Program -> Text
-  emit (Program func) = emit func `T.append` ".section .note.GNU-stack,\"\",@progbits\n\n"
+  emit (Program func) = emit func <> ".section .note.GNU-stack,\"\",@progbits\n\n"
 
 instance Assembly FunctionDefinition where
   emit :: FunctionDefinition -> Text
-  emit func = ".globl " `T.append` name `T.append` "\n"
-                        `T.append` name `T.append` ":\n"
-                        `T.append` "\tpushq %rbp\n"
-                        `T.append` "\tmovq %rsp, %rbp\n"
-                        `T.append` instructions
+  emit func = ".globl " <> name <> "\n"
+                        <> name <> ":\n"
+                        <> "\tpushq %rbp\n"
+                        <> "\tmovq %rsp, %rbp\n"
+                        <> instructions
     where name = funcName func
           instructions = flip T.snoc '\n' $ T.concat $ map (T.unlines . map (T.cons '\t') . T.lines . emit) $ funcInstructions func
 
 instance Assembly Instruction where
   emit :: Instruction -> Text
-  emit Mov {movSrc=src, movDst=dst} = "movl " `T.append` emit src `T.append` ", " `T.append` emit dst
+  emit Mov {movSrc=src, movDst=dst} = "movl " <> emit src <> ", " <> emit dst
   emit Ret = "movq %rbp, %rsp\
              \\npopq %rbp\
              \\nret"
   emit Unary {unaryOperand=operand, unaryOp=op} = T.intercalate " " [emit op, emit operand]
-  emit Binary {binaryOperands=(Reg reg, op2), binaryOp=op@ShiftLeft} = emit op `T.append` " " `T.append` emitReg B1 reg `T.append` ", " `T.append` emit op2
-  emit Binary {binaryOperands=(Reg reg, op2), binaryOp=op@ShiftRight} = emit op `T.append` " " `T.append` emitReg B1 reg `T.append` ", " `T.append` emit op2
-  emit Binary {binaryOperands=(op1, op2), binaryOp=op} = emit op `T.append` " " `T.append` emit op1 `T.append` ", " `T.append` emit op2
-  emit (Idiv operand) = "idivl " `T.append` emit operand
+  emit Binary {binaryOperands=(Reg reg, op2), binaryOp=op@ShiftLeft} = emit op <> " " <> emitReg B1 reg <> ", " <> emit op2
+  emit Binary {binaryOperands=(Reg reg, op2), binaryOp=op@ShiftRight} = emit op <> " " <> emitReg B1 reg <> ", " <> emit op2
+  emit Binary {binaryOperands=(op1, op2), binaryOp=op} = emit op <> " " <> emit op1 <> ", " <> emit op2
+  emit (Idiv operand) = "idivl " <> emit operand
   emit Cdq = "cdq"
-  emit (AllocateStack offset) = "subq " `T.append` literal offset `T.append` ", %rsp"
-  emit (Cmp op1 op2) = "cmpl " `T.append` emit op1 `T.append` ", " `T.append` emit op2
-  emit (Jmp label) = "jmp .L" `T.append` label
-  emit (JmpCC cond label) = "j" `T.append` emit cond `T.append` " .L" `T.append` label
-  emit (SetCC cond (Reg reg)) = "set" `T.append` emit cond `T.append` " " `T.append` emitReg B1 reg
-  emit (SetCC cond operand) = "set" `T.append` emit cond `T.append` " " `T.append` emit operand
-  emit (Label label) = ".L" `T.append` label `T.append` ":"
+  emit (AllocateStack offset) = "subq " <> literal offset <> ", %rsp"
+  emit (Cmp op1 op2) = "cmpl " <> emit op1 <> ", " <> emit op2
+  emit (Jmp label) = "jmp .L" <> label
+  emit (JmpCC cond label) = "j" <> emit cond <> " .L" <> label
+  emit (SetCC cond (Reg reg)) = "set" <> emit cond <> " " <> emitReg B1 reg
+  emit (SetCC cond operand) = "set" <> emit cond <> " " <> emit operand
+  emit (Label label) = ".L" <> label <> ":"
 
 instance Assembly Operand where
   emit :: Operand -> Text
   emit (Reg reg)      = emit reg
-  emit (Stack offset) = T.pack (show offset) `T.append` "(%rbp)"
+  emit (Stack offset) = T.pack (show offset) <> "(%rbp)"
   emit (Imm v)        = literal v
   emit _              = ""
 

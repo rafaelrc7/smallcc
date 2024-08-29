@@ -168,7 +168,7 @@ newVar :: Maybe Text -> State -> (Val, State)
 newVar label state@State{ stateLastTmp = lastTmp } = (Var newTmpLabel, state{ stateLastTmp = newTmp })
   where varLabel = T.snoc (fromMaybe "tmp" label) '.'
         newTmp = lastTmp + 1
-        newTmpLabel = T.append varLabel $ T.pack $ show newTmp
+        newTmpLabel = varLabel <> T.pack (show newTmp)
 
 newTmpVar :: State -> (Val, State)
 newTmpVar = newVar Nothing
@@ -178,5 +178,5 @@ newLabel caption state = (label, state{ stateLastLabel = labelNumber })
   where labelNumber = stateLastLabel state + 1
         labelNumberText = T.pack $ show labelNumber
         label = case caption of Nothing -> labelNumberText
-                                Just labelCaption -> labelCaption `T.append` labelNumberText
+                                Just labelCaption -> labelCaption <> labelNumberText
 
