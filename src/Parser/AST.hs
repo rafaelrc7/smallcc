@@ -1,4 +1,5 @@
 {-# LANGUAGE InstanceSigs         #-}
+{-# LANGUAGE LambdaCase           #-}
 {-# LANGUAGE OverloadedStrings    #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 
@@ -14,16 +15,27 @@ newtype Program = Program FunctionDefinition
   deriving (Show)
 
 data FunctionDefinition = Function { funcName :: Identifier
-                                   , funcBody :: Statement
+                                   , funcBody :: [BlockItem]
                                    }
   deriving (Show)
 
-newtype Statement = Return Exp
+data Statement = Return Exp
+               | Expression Exp
+               | Null
+  deriving (Show)
+
+data Declaration = Declaration Identifier (Maybe Exp)
+  deriving (Show)
+
+data BlockItem = Stmt Statement
+               | Dec Declaration
   deriving (Show)
 
 data Exp = Constant Constant
+         | Var Identifier
          | Unary UnaryOperator Exp
          | Binary BinaryOperator Exp Exp
+         | Assignment Exp Exp
   deriving (Show)
 
 newtype Constant = CInt Int
@@ -52,6 +64,7 @@ data BinaryOperator = Add
                     | LessOrEqual
                     | Greater
                     | GreaterOrEqual
+                    | Assign
   deriving (Show)
 
 type Identifier = Text
@@ -76,6 +89,7 @@ precedence Subtract       = 45
 precedence Multiply       = 50
 precedence Divide         = 50
 precedence Remainder      = 50
+precedence Assign         = 60 -- TODO: Implement right associativity and correct precedence
 
 class Parser a where
   parse :: [Token] -> Either ParserError (a, [Token])
@@ -88,33 +102,66 @@ instance Parser Program where
       []    -> Right (Program function, ts')
       (t:_) -> Left ExpectedEOF {got=t}
 
--- <function> ::= "int" <identifier> "(" "void" ")" "{" <statement> "}"
+-- <function> ::= "int" <identifier> "(" "void" ")" "{" {<block-item>} "}"
+-- <block-item> ::= <statement> | <declaration>
 instance Parser FunctionDefinition where
   parse :: [Token] -> Either ParserError (FunctionDefinition, [Token])
   parse (TK.Keyword TK.Int : ts) = parse ts >>= \(name, ts') ->
     case ts' of
       (TK.OpenParens : TK.Keyword TK.Void : TK.CloseParens : TK.OpenBrace : ts'' ) ->
-        parse ts'' >>= \(body, ts''') ->
           case ts''' of
             (TK.CloseBrace : ts'''') -> Right (Function {funcName=name, funcBody=body}, ts'''')
             (t : _) -> Left UnexpectedToken {got=t, expected="}"}
             [] -> Left UnexpectedEOF {expected="}"}
+        where (body, ts''') = parseBlockItens ts''
       (t : _) -> Left UnexpectedToken {got=t, expected="("}
       [] -> Left UnexpectedEOF {expected="("}
   parse (t : _) = Left UnexpectedToken {got=t, expected="int"}
   parse [] = Left UnexpectedEOF {expected="int"}
 
-
 -- <statement> ::= "return" <exp> ";"
 instance Parser Statement where
   parse :: [Token] -> Either ParserError (Statement, [Token])
+  parse (TK.Semicolon : ts) = Right (Null, ts)
   parse (TK.Keyword TK.Return : ts) = parse ts >>= \(expr, ts') ->
     case ts' of
       (TK.Semicolon : ts'') -> Right (Return expr, ts'')
       (t : _)               -> Left UnexpectedToken {got=t, expected=";"}
       []                    -> Left UnexpectedEOF {expected=";"}
-  parse (t : _) = Left UnexpectedToken {got=t, expected="return"}
-  parse [] = Left UnexpectedEOF {expected="return"}
+  parse ts = parse ts >>= \(expr, ts') ->
+    case ts' of
+      (TK.Semicolon : ts'') -> Right (Expression expr, ts'')
+      (t : _)               -> Left UnexpectedToken {got=t, expected=";"}
+      []                    -> Left UnexpectedEOF {expected=";"}
+
+-- <declaration> ::= "int" <identifier> ["=" <exp>] ";"
+instance Parser Declaration where
+  parse :: [Token] -> Either ParserError (Declaration, [Token])
+  parse (TK.Keyword TK.Int : ts) = parse ts >>= \(name, ts') ->
+    case ts' of
+      (TK.Semicolon : ts'') -> Right (Declaration name Nothing, ts'')
+      (TK.Equals : ts'') -> parse ts'' >>=
+        \case (expr, TK.Semicolon : ts''') -> Right (Declaration name (Just expr), ts''')
+              (_, t : _) -> Left UnexpectedToken {got=t, expected=";"}
+              (_, []) -> Left UnexpectedEOF {expected=";"}
+      (t : _) -> Left UnexpectedToken {got=t, expected="; | <exp>;"}
+      [] -> Left UnexpectedEOF {expected="; | <exp>;"}
+  parse (t : _) = Left UnexpectedToken {got=t, expected="int"}
+  parse [] = Left UnexpectedEOF {expected="int"}
+
+-- <block_item> ::= <statement> | <declaration>
+instance Parser BlockItem where
+  parse :: [Token] -> Either ParserError (BlockItem, [Token])
+  parse ts@(TK.Keyword TK.Int : _) = parse ts >>= \(dec, ts') -> Right (Dec dec, ts')
+  parse ts = parse ts >>= \(stmt, ts') -> Right (Stmt stmt, ts')
+
+-- {<block_item>} ::= <block_item>*
+parseBlockItens :: [Token] -> ([BlockItem], [Token])
+parseBlockItens ts =
+  case parse ts of
+    Right (blockItem, ts') -> (blockItem : bis, ts'')
+      where (bis, ts'') = parseBlockItens ts'
+    Left _ -> ([], ts)
 
 -- <exp> ::= <factor> | <exp> <binop> <exp>
 instance Parser Exp where
@@ -148,10 +195,13 @@ parseFactor (TK.OpenParens : ts) = parse ts >>= \(expr, ts') ->
     (TK.CloseParens : ts'') -> Right (expr, ts'')
     (t : _)                 -> Left UnexpectedToken {got=t, expected=")" }
     []                      -> Left UnexpectedEOF {expected=")"}
-parseFactor ts = parse ts >>= \(constant, ts') -> Right (Constant constant, ts')
+parseFactor ts@(TK.Constant _ : _) = parse ts >>= \(constant, ts') -> Right (Constant constant, ts')
+parseFactor ts@(TK.Identifier _ : _) = parse ts >>= \(var, ts') -> Right (Var var, ts')
+parseFactor (t : _) = Left $ UnexpectedToken {got=t, expected="<exp>"}
+parseFactor [] = Left $ UnexpectedEOF {expected="<exp>"}
 
 -- <binop> ::= "-" | "+" | "*" | "/" | "%" | "&&" | "||"
---           | "==" | "!=" | "<" | "<=" | ">" | ">="
+--           | "==" | "!=" | "<" | "<=" | ">" | ">=" | "="
 --           | ">>" | "<<" | "&" | "|" | "^"
 instance Parser BinaryOperator where
   parse :: [Token] -> Either ParserError (BinaryOperator, [Token])
@@ -173,6 +223,7 @@ instance Parser BinaryOperator where
   parse (TK.Asterisk : ts) = Right (Multiply, ts)
   parse (TK.ForwardSlash : ts) = Right (Divide, ts)
   parse (TK.Percent : ts) = Right (Remainder, ts)
+  parse (TK.Equals : ts) = Right (Assign, ts)
   parse (t : _) = Left UnexpectedToken {got=t, expected="<binop>"}
   parse [] = Left UnexpectedEOF {expected="<binop>"}
 

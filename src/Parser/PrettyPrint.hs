@@ -27,19 +27,35 @@ instance PrettyPrinter FunctionDefinition where
   pretty :: FunctionDefinition -> Text
   pretty (Function {funcBody=body, funcName=name}) = "Function '" `T.append` name `T.append` "'\n"
                                           `T.append` body'
-    where body' = identLines $ pretty body
+    where body' = T.concat $ map (identLines . pretty) body
+
+instance PrettyPrinter BlockItem where
+  pretty :: BlockItem -> Text
+  pretty (Stmt stmt) = pretty stmt
+  pretty (Dec dec)   = pretty dec
 
 instance PrettyPrinter Statement where
   pretty :: Statement -> Text
-  pretty (Return expr) = ret `T.append` expr' `T.append` "\n"
+  pretty (Return expr) = ret `T.append` expr' `T.append` ";\n"
     where ret = "return "
           expr' = pretty expr
+  pretty (Expression expr) = pretty expr `T.append` ";\n"
+  pretty Null = ";\n"
+
+instance PrettyPrinter Declaration where
+  pretty :: Declaration -> Text
+  pretty (Declaration name Nothing) = "int " `T.append` name `T.append` ";\n";
+  pretty (Declaration name (Just i)) = "int " `T.append` name `T.append` " = " `T.append` pretty i `T.append` ";\n";
 
 instance PrettyPrinter Exp where
   pretty :: Exp -> Text
   pretty (Constant val) = pretty val
   pretty (Unary op expr) = pretty op `T.append` pretty expr
   pretty (Binary op exprl exprr) = "(" `T.append` T.intercalate " " [pretty exprl, pretty op, pretty exprr] `T.append` ")"
+  pretty (Var var) = var
+  pretty (Assignment lvalue rvalue) = "(" `T.append` lvalue' `T.append` " = " `T.append` rvalue' `T.append` ")"
+    where lvalue' = pretty lvalue
+          rvalue' = pretty rvalue
 
 instance PrettyPrinter Constant where
   pretty :: Constant -> Text
@@ -71,4 +87,5 @@ instance PrettyPrinter BinaryOperator where
   pretty Multiply       = "*"
   pretty Divide         = "/"
   pretty Remainder      = "%"
+  pretty Assign         = "="
 

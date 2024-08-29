@@ -79,7 +79,7 @@ translateProgram (P.Program func) = Program $ translateFunction func
 translateFunction :: P.FunctionDefinition -> FunctionDefinition
 translateFunction P.Function {P.funcName=name, P.funcBody=body} =
   Function { funcIdentifier=name
-           , funcBody = translateStatement body
+           , funcBody = translateStatement undefined -- body
            }
 
 translateStatement :: P.Statement -> [Instruction]
