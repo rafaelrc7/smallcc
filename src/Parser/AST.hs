@@ -5,10 +5,11 @@
 
 module Parser.AST where
 
-import           Data.Text    (Text)
+import           Data.Text       (Text)
 
-import           Lexer.Token  (Token)
-import qualified Lexer.Token  as TK
+import           Lexer.Token     (Token)
+import qualified Lexer.Token     as TK
+import           Numeric.Natural (Natural)
 import           Parser.Error
 
 newtype Program = Program FunctionDefinition
@@ -69,27 +70,31 @@ data BinaryOperator = Add
 
 type Identifier = Text
 
-precedence :: BinaryOperator -> Int
+data Associativity = LeftAssociative | RightAssociative
+
+data Precedence = Precedence Associativity Natural
+
 -- https://en.cppreference.com/w/c/language/operator_precedence
-precedence Or             = 5
-precedence And            = 10
-precedence BitOr          = 15
-precedence BitXOR         = 20
-precedence BitAnd         = 25
-precedence EqualsTo       = 30
-precedence NotEqualsTo    = 30
-precedence Less           = 35
-precedence LessOrEqual    = 35
-precedence Greater        = 35
-precedence GreaterOrEqual = 35
-precedence BitShiftLeft   = 40
-precedence BitShiftRight  = 40
-precedence Add            = 45
-precedence Subtract       = 45
-precedence Multiply       = 50
-precedence Divide         = 50
-precedence Remainder      = 50
-precedence Assign         = 60 -- TODO: Implement right associativity and correct precedence
+precedence :: BinaryOperator -> Precedence
+precedence Assign         = Precedence RightAssociative 1
+precedence Or             = Precedence LeftAssociative  5
+precedence And            = Precedence LeftAssociative  10
+precedence BitOr          = Precedence LeftAssociative  15
+precedence BitXOR         = Precedence LeftAssociative  20
+precedence BitAnd         = Precedence LeftAssociative  25
+precedence EqualsTo       = Precedence LeftAssociative  30
+precedence NotEqualsTo    = Precedence LeftAssociative  30
+precedence Less           = Precedence LeftAssociative  35
+precedence LessOrEqual    = Precedence LeftAssociative  35
+precedence Greater        = Precedence LeftAssociative  35
+precedence GreaterOrEqual = Precedence LeftAssociative  35
+precedence BitShiftLeft   = Precedence LeftAssociative  40
+precedence BitShiftRight  = Precedence LeftAssociative  40
+precedence Add            = Precedence LeftAssociative  45
+precedence Subtract       = Precedence LeftAssociative  45
+precedence Multiply       = Precedence LeftAssociative  50
+precedence Divide         = Precedence LeftAssociative  50
+precedence Remainder      = Precedence LeftAssociative  50
 
 class Parser a where
   parse :: [Token] -> Either ParserError (a, [Token])
@@ -160,23 +165,30 @@ parseBlockItens ts =
 -- <exp> ::= <factor> | <exp> <binop> <exp>
 instance Parser Exp where
   parse :: [Token] -> Either ParserError (Exp, [Token])
-  parse = parseExp 0
+  parse = precedenceClimb 0
 
-parseExp :: Int -> [Token] -> Either ParserError (Exp, [Token])
-parseExp minPrecedence ts =
+precedenceClimb :: Natural -> [Token] -> Either ParserError (Exp, [Token])
+precedenceClimb minPrecedence ts =
   parseFactor ts >>= \(left, ts') ->
     case parse ts' :: Either ParserError (BinaryOperator, [Token]) of
       Left _  -> Right (left, ts')
-      Right _ -> parseExp' minPrecedence ts' left
-  where parseExp' :: Int -> [Token] -> Exp -> Either ParserError (Exp, [Token])
-        parseExp' minPrec ts' left = case parse ts' of
+      Right _ -> precedenceClimb' minPrecedence ts' left
+  where precedenceClimb' :: Natural -> [Token] -> Exp -> Either ParserError (Exp, [Token])
+        precedenceClimb' minPrec ts' left = case parse ts' of
           Left _ -> Right (left, ts')
-          Right (op, ts'')
-              | opPrecedence >= minPrec ->
-                  parseExp (opPrecedence + 1) ts'' >>= \(right, ts''') ->
-                  parseExp' minPrec ts''' (Binary op left right)
-              | otherwise -> Right (left, ts')
-            where opPrecedence = precedence op
+          Right (op, ts'') ->
+            if opPrecedence < minPrec then
+              Right (left, ts')
+            else do let nextPrecedence = case opAssociativity of
+                         LeftAssociative  -> opPrecedence + 1
+                         RightAssociative -> opPrecedence
+                    (right, ts''') <- precedenceClimb nextPrecedence ts''
+                    let expr = case op of
+                         Assign -> Assignment left right
+                         _      -> Binary op left right
+                    precedenceClimb' minPrec ts''' expr
+              where
+                (Precedence opAssociativity opPrecedence) = precedence op
 
 -- <factor> ::= <int> | <unop> <exp> | "(" <exp> ")"
 -- <unop> ::= "-" | "~" | "!"
