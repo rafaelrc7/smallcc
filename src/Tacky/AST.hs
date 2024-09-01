@@ -1,8 +1,8 @@
-{-# LANGUAGE GADTs             #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Tacky.AST where
 
+import           Data.List  (foldl')
 import           Data.Maybe (fromMaybe)
 import           Data.Text  (Text)
 import qualified Data.Text  as T
@@ -73,21 +73,48 @@ data Val = Const Int
          | Var Identifier
   deriving (Show)
 
-translateProgram :: P.Program -> Program
-translateProgram (P.Program func) = Program $ translateFunction func
+translateProgram :: State -> P.Program -> (State, Program)
+translateProgram st (P.Program func) = Program <$> translateFunction st func
 
-translateFunction :: P.FunctionDefinition -> FunctionDefinition
-translateFunction P.Function {P.funcName=name, P.funcBody=body} =
-  Function { funcIdentifier=name
-           , funcBody = translateStatement undefined -- body
-           }
+translateFunction :: State -> P.FunctionDefinition -> (State, FunctionDefinition)
+translateFunction st P.Function {P.funcName=name, P.funcBody=body} =
+  ( st'''
+  , Function { funcIdentifier=name
+             , funcBody = body'' ++ [ Return $ Const 0 ]
+             }
+  )
+  where (body'', st''') = foldl' (\(body', st') i ->
+                                  let (st'', ins) = translateBlockItem st' i
+                                  in (body' ++ ins, st''))
+                                ([], st)
+                                body
 
-translateStatement :: P.Statement -> [Instruction]
-translateStatement (P.Return expr) = expInstructions ++ [Return expVal]
-  where (expInstructions, expVal, _) = translateExp emptyState expr
+translateBlockItem :: State -> P.BlockItem -> (State, [Instruction])
+translateBlockItem st (P.Stmt stmt) = translateStatement st stmt
+translateBlockItem st (P.Dec  decl) = translateDeclaration st decl
+
+translateStatement :: State -> P.Statement -> (State, [Instruction])
+translateStatement st P.Null = (st, [])
+translateStatement st (P.Return expr) = (st', expInstructions ++ [Return expVal])
+  where (expInstructions, expVal, st') = translateExp st expr
+translateStatement st (P.Expression expr) = (st', exprInstructions)
+  where (exprInstructions, _, st') = translateExp st expr
+
+translateDeclaration :: State -> P.Declaration -> (State, [Instruction])
+translateDeclaration st (P.Declaration _ Nothing) = (st, [])
+translateDeclaration st (P.Declaration lhs (Just rhs)) =
+    ( st'
+    , rhsInstrucitons
+        ++ [ Copy { copySrc = rhs'
+                  , copyDst = Var lhs
+                  }
+           ]
+    )
+  where (rhsInstrucitons, rhs', st') = translateExp st rhs
 
 translateExp :: State -> P.Exp -> ([Instruction], Val, State)
 translateExp s (P.Constant (P.CInt val)) = ([], Const val, s)
+translateExp s (P.Var var) = ([], Var var, s)
 translateExp s (P.Unary op expr) = (instructions, dst, s'')
   where (exprInstructions, src, s') = translateExp s expr
         (dst, s'') = newTmpVar s'
@@ -101,6 +128,16 @@ translateExp s (P.Binary op exprl exprr) = (instructions, dst, s''')
         (dst, s''') = newTmpVar s''
         instruction = Binary {binaryOperator=translateBinaryOp op, binarySrcs=(srcl, srcr), binaryDst=dst}
         instructions = exprlInstructions ++ exprrInstructions ++ [instruction]
+translateExp s (P.Assignment lhs rhs) = (lhsInstructions
+                                          ++ rhsInstrucitons
+                                          ++ [ Copy { copySrc = rhs'
+                                                    , copyDst = lhs'
+                                                    }
+                                             ]
+                                        , lhs'
+                                        , s'')
+  where (lhsInstructions, lhs', s') = translateExp s lhs
+        (rhsInstrucitons, rhs', s'') = translateExp s' rhs
 
 translateOr :: State -> (P.Exp, P.Exp) -> ([Instruction], Val, State)
 translateOr s (expr1,  expr2) = (instructions, resultVar, s''''')
@@ -163,6 +200,7 @@ translateBinaryOp P.Remainder      = Remainder
 
 translateBinaryOp P.And            = undefined
 translateBinaryOp P.Or             = undefined
+translateBinaryOp P.Assign         = undefined
 
 newVar :: Maybe Text -> State -> (Val, State)
 newVar label state@State{ stateLastTmp = lastTmp } = (Var newTmpLabel, state{ stateLastTmp = newTmp })

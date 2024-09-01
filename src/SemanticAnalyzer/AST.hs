@@ -10,6 +10,7 @@ import           Parser.AST             (BlockItem (..), Declaration (..),
                                          Statement (..))
 import           SemanticAnalyzer.Error (SemanticError (..))
 
+import           Data.List              (foldl')
 import           Data.Map               (Map)
 import qualified Data.Map               as M
 import           Data.Text              (Text)
@@ -47,9 +48,9 @@ instance SemanticAnalyzer Program where
 instance SemanticAnalyzer FunctionDefinition where
   resolve :: State -> FunctionDefinition -> Either SemanticError (FunctionDefinition, State)
   resolve st func@Function { funcBody = body } = result >>= \(body', st') -> Right (func { funcBody = body' }, st')
-    where result = foldl (\acc item -> acc >>= \(body', st') ->
+    where result = foldl' (\acc item -> acc >>= \(body', st') ->
                            resolve st' item >>= \(item', st'') ->
-                           Right (item':body', st''))
+                           Right (body' ++ [ item' ], st''))
                          (Right ([], st))
                          body
 
