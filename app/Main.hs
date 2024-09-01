@@ -18,6 +18,7 @@ import           AssemblyGenerator
 import           Lexer
 import           Parser
 import           Parser.PrettyPrint
+import           SemanticAnalyzer
 import           Tacky
 
 main :: IO ()
@@ -67,9 +68,18 @@ main = do
                                    exitSuccess
                               return ast
 
+  -- Semantic Analyzer
+  ast' <- case semanticAnalyze ast of
+                Left err -> do print err
+                               exitFailure
+                Right ast' ->   do when (targetStage == S.CompilerMode S.SemanticAnalyzerMode) $
+                                     do TIO.putStrLn $ pretty ast'
+                                        exitSuccess
+                                   return ast'
+
   -- Tacky generator
-  let tackyAst = translateTacky ast
-  when (targetStage == S.CompilerMode S.Tacky) $
+  let tackyAst = translateTacky ast'
+  when (targetStage == S.CompilerMode S.TackyMode) $
     do print tackyAst
        exitSuccess
 

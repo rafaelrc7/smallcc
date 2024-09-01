@@ -53,9 +53,9 @@ instance PrettyPrinter Exp where
   pretty (Unary op expr) = pretty op <> pretty expr
   pretty (Binary op exprl exprr) = "(" <> T.intercalate " " [pretty exprl, pretty op, pretty exprr] <> ")"
   pretty (Var var) = var
-  pretty (Assignment lvalue rvalue) = "(" <> lvalue' <> " = " <> rvalue' <> ")"
-    where lvalue' = pretty lvalue
-          rvalue' = pretty rvalue
+  pretty (Assignment lhs rhs) = "(" <> lhs' <> " = " <> rhs' <> ")"
+    where lhs' = pretty lhs
+          rhs' = pretty rhs
 
 instance PrettyPrinter Constant where
   pretty :: Constant -> Text

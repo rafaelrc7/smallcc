@@ -20,16 +20,16 @@ data FunctionDefinition = Function { funcName :: Identifier
                                    }
   deriving (Show)
 
+data BlockItem = Stmt Statement
+               | Dec Declaration
+  deriving (Show)
+
 data Statement = Return Exp
                | Expression Exp
                | Null
   deriving (Show)
 
 data Declaration = Declaration Identifier (Maybe Exp)
-  deriving (Show)
-
-data BlockItem = Stmt Statement
-               | Dec Declaration
   deriving (Show)
 
 data Exp = Constant Constant

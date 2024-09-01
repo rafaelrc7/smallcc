@@ -67,6 +67,7 @@ library
     MyLib
     Parser
     Parser.PrettyPrint
+    SemanticAnalyzer
     Tacky
 
   -- Modules included in this library but not exported.
@@ -76,6 +77,8 @@ library
     Lexer.Token
     Parser.AST
     Parser.Error
+    SemanticAnalyzer.AST
+    SemanticAnalyzer.Error
     Tacky.AST
 
   -- LANGUAGE extensions used by modules in this package.

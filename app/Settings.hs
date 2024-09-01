@@ -4,11 +4,15 @@ module Settings ( CompilerMode(..)
                 , parseCLIArgs
 ) where
 
-import           Options.Applicative
+import           Options.Applicative (Alternative ((<|>)), Parser, ParserInfo,
+                                      argument, execParser, flag', fullDesc,
+                                      header, help, helper, info, long, metavar,
+                                      progDesc, short, str, switch, (<**>))
 
 data CompilerMode = LexerMode
                   | ParserMode
-                  | Tacky
+                  | SemanticAnalyzerMode
+                  | TackyMode
                   | CodeGeneratorMode
                   | CodeEmitterMode
  deriving (Show, Eq)
@@ -39,9 +43,17 @@ settingsParser :: Parser Settings
 settingsParser = Settings <$> modeParser <*> keepIntermediateFilesParser <*> inputFileParser
 
 modeParser :: Parser Mode
-modeParser = preProcessorMode <|> lexerMode <|> parserMode <|> tackyMode
-              <|> codeGeneratorMode <|> codeEmitterMode <|> assemblerMode
-              <|> linkerMode <|> pure LinkerMode
+modeParser =
+  preProcessorMode
+    <|> lexerMode
+    <|> parserMode
+    <|> semanticAnalyzerMode
+    <|> tackyMode
+    <|> codeGeneratorMode
+    <|> codeEmitterMode
+    <|> assemblerMode
+    <|> linkerMode
+    <|> pure LinkerMode
 
 keepIntermediateFilesParser :: Parser Bool
 keepIntermediateFilesParser = switch ( long "keep" <> short 'K' <> help "Keep intermediate files" )
@@ -65,8 +77,13 @@ parserMode = flag' (CompilerMode ParserMode)
   (  long "parse"
   <> help "Run up to the parser" )
 
+semanticAnalyzerMode :: Parser Mode
+semanticAnalyzerMode = flag' (CompilerMode SemanticAnalyzerMode)
+  (  long "validate"
+  <> help "Run up to the semantic analyzer" )
+
 tackyMode :: Parser Mode
-tackyMode = flag' (CompilerMode Tacky)
+tackyMode = flag' (CompilerMode TackyMode)
   (  long "tacky"
   <> help "Run up to tacky generation" )
 
