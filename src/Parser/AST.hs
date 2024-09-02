@@ -277,17 +277,21 @@ instance Parser BinaryOperator where
   parse (TK.Asterisk : ts) = Right (Multiply, ts)
   parse (TK.ForwardSlash : ts) = Right (Divide, ts)
   parse (TK.Percent : ts) = Right (Remainder, ts)
-  parse (TK.Equals : ts) = Right (BinaryAssignmentOperator Assign, ts)
-  parse (TK.IncAssign : ts) = Right (BinaryAssignmentOperator IncAssign, ts)
-  parse (TK.DecAssign : ts) = Right (BinaryAssignmentOperator DecAssign, ts)
-  parse (TK.MulAssign : ts) = Right (BinaryAssignmentOperator MulAssign, ts)
-  parse (TK.DivAssign : ts) = Right (BinaryAssignmentOperator DivAssign, ts)
-  parse (TK.ModAssign : ts) = Right (BinaryAssignmentOperator ModAssign, ts)
-  parse (TK.BitAndAssign : ts) = Right (BinaryAssignmentOperator BitAndAssign, ts)
-  parse (TK.BitOrAssign : ts) = Right (BinaryAssignmentOperator BitOrAssign, ts)
-  parse (TK.BitXORAssign : ts) = Right (BinaryAssignmentOperator BitXORAssign, ts)
-  parse (TK.BitShiftLeftAssign : ts) = Right (BinaryAssignmentOperator BitShiftLeftAssign, ts)
-  parse (TK.BitShiftRightAssign : ts) = Right (BinaryAssignmentOperator BitShiftRightAssign, ts)
+  parse ts = parse ts >>= \(op, ts') -> Right (BinaryAssignmentOperator op, ts')
+
+instance Parser BinaryAssignmentOperator where
+  parse :: [Token] -> Either ParserError (BinaryAssignmentOperator, [Token])
+  parse (TK.Equals : ts) = Right (Assign, ts)
+  parse (TK.IncAssign : ts) = Right (IncAssign, ts)
+  parse (TK.DecAssign : ts) = Right (DecAssign, ts)
+  parse (TK.MulAssign : ts) = Right (MulAssign, ts)
+  parse (TK.DivAssign : ts) = Right (DivAssign, ts)
+  parse (TK.ModAssign : ts) = Right (ModAssign, ts)
+  parse (TK.BitAndAssign : ts) = Right (BitAndAssign, ts)
+  parse (TK.BitOrAssign : ts) = Right (BitOrAssign, ts)
+  parse (TK.BitXORAssign : ts) = Right (BitXORAssign, ts)
+  parse (TK.BitShiftLeftAssign : ts) = Right (BitShiftLeftAssign, ts)
+  parse (TK.BitShiftRightAssign : ts) = Right (BitShiftRightAssign, ts)
   parse (t : _) = Left UnexpectedToken {got=t, expected="<binop>"}
   parse [] = Left UnexpectedEOF {expected="<binop>"}
 
