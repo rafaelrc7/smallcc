@@ -35,6 +35,16 @@ data Token = Keyword Keyword
            | NotEqualsTo
            | EqualsTo
            | Equals
+           | IncAssign
+           | DecAssign
+           | MulAssign
+           | DivAssign
+           | ModAssign
+           | BitAndAssign
+           | BitOrAssign
+           | BitXORAssign
+           | BitShiftLeftAssign
+           | BitShiftRightAssign
   deriving (Show, Eq)
 
 data Keyword = Int

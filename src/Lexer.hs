@@ -59,27 +59,28 @@ scanToken lexer lexeme =
         '}' -> retToken CloseBrace
         ';' -> retToken Semicolon
         '~' -> retToken Complement
-        '*' -> retToken Asterisk
-        '/' -> retToken ForwardSlash
-        '%' -> retToken Percent
-        '^' -> retToken BitXOR
-        '=' -> scanCompoundToken' (Just Equals)  [('=', EqualsTo)]
-        '!' -> scanCompoundToken' (Just Not)     [('=', NotEqualsTo)]
-        '+' -> scanCompoundToken' (Just Plus)    [('+', Increment)]
-        '-' -> scanCompoundToken' (Just Minus)   [('-', Decrement)]
-        '&' -> scanCompoundToken' (Just BitAnd)  [('&', And)]
-        '|' -> scanCompoundToken' (Just BitOr)   [('|', Or)]
-        '<' -> scanCompoundToken' (Just Less)    [('=', LessOrEqual), ('<', BitShiftLeft)]
-        '>' -> scanCompoundToken' (Just Greater) [('=', GreaterOrEqual), ('>', BitShiftRight)]
         _ | isSpace symbol -> nextToken lexer'
           | isDigit symbol -> scanConstant lexer' lexeme'
           | isAlpha_ symbol -> scanIdentifier lexer' lexeme'
-          | otherwise -> scanUnknownToken lexer' lexeme'
+          | otherwise -> case scanCompoundToken' [ ("=", Equals),       ("==", EqualsTo)
+                                                 , ("!", Not),          ("!=", NotEqualsTo)
+                                                 , ("+", Plus),         ("+=", IncAssign),      ("++", Increment)
+                                                 , ("-", Minus),        ("-=", DecAssign),      ("--", Decrement)
+                                                 , ("*", Asterisk),     ("*=", MulAssign)
+                                                 , ("/", ForwardSlash), ("/=", DivAssign)
+                                                 , ("%", Percent),      ("%=", ModAssign)
+                                                 , ("^", BitXOR),       ("^=", BitXORAssign)
+                                                 , ("&", BitAnd),       ("&=", BitAndAssign),   ("&&", And)
+                                                 , ("|", BitOr),        ("|=", BitOrAssign),    ("||", Or)
+                                                 , ("<", Less),         ("<=", LessOrEqual),    ("<<", BitShiftLeft),  ("<<=", BitShiftLeftAssign)
+                                                 , (">", Greater),      (">=", GreaterOrEqual), (">>", BitShiftRight), (">>=", BitShiftRightAssign)]
+                         of Left _ -> scanUnknownToken lexer lexeme
+                            tok    -> tok
       where retToken :: Token -> Either LexerError (Token, Lexer)
             retToken token = Right (token, lexer')
 
-            scanCompoundToken' :: Maybe Token -> [(Char, Token)] -> Either LexerError (Token, Lexer)
-            scanCompoundToken' = scanCompoundToken lexer' lexeme'
+            scanCompoundToken' :: [(String, Token)] -> Either LexerError (Token, Lexer)
+            scanCompoundToken' = scanCompoundToken lexer lexeme
 
 nextSymbol :: Lexer -> Lexeme -> Maybe (Char, Lexer, Lexeme)
 nextSymbol lexer (Lexeme lexeme) =
@@ -117,16 +118,30 @@ scanIdentifier lexer lexeme@(Lexeme lexemeBuffer) =
                   Just keyword -> Right (Keyword keyword, lexer)
                   Nothing      -> Right (Identifier lexemeBuffer, lexer)
 
-scanCompoundToken :: Lexer -> Lexeme -> Maybe Token -> [(Char, Token)] -> Either LexerError (Token, Lexer)
-scanCompoundToken _ _ Nothing [] = Left MalformedToken
-scanCompoundToken lexer _ (Just token) [] = Right (token, lexer)
-scanCompoundToken lexer lexeme singleToken ((symbol, token):cts) =
+scanCompoundToken :: Lexer -> Lexeme -> [(String, Token)] -> Either LexerError (Token, Lexer)
+scanCompoundToken _ _ [] = Left MalformedToken
+scanCompoundToken lexer lexeme tokens =
   case nextSymbol lexer lexeme of
-    Just (symbol', lexer', _)
-      | symbol == symbol' -> Right (token, lexer')
-      | otherwise -> iter
-    Nothing -> iter
-  where iter = scanCompoundToken lexer lexeme singleToken cts
+    Nothing                         -> Left MalformedToken
+    Just (symbol', lexer', lexeme') ->
+      case scanCompoundToken lexer' lexeme' tokens' of
+        Left err -> case token' of
+                      Nothing    -> Left err
+                      Just token -> Right (token, lexer')
+        ret      -> ret
+      where scanCompoundToken' :: [(String, Token)] -> (Maybe Token, [(String, Token)])
+            scanCompoundToken' [] = (Nothing, [])
+            scanCompoundToken' (("", _) : ts) = scanCompoundToken' ts
+            scanCompoundToken' ((c : "", t) : ts)
+              | c == symbol' = (Just t, ts')
+              | otherwise = (t', ts')
+              where (t', ts') = scanCompoundToken' ts
+            scanCompoundToken' ((c : cs, t) : ts)
+              | c == symbol' = (t', (cs, t) : ts')
+              | otherwise = (t', ts')
+              where (t', ts') = scanCompoundToken' ts
+
+            (token', tokens') = scanCompoundToken' tokens
 
 scanUnknownToken :: Lexer -> Lexeme -> Either LexerError (Token, Lexer)
 scanUnknownToken lexer lexeme =
