@@ -233,11 +233,7 @@ precedenceClimb minPrecedence ts =
 -- <factor> ::= <int> | <unop> <exp> | <exp> <unop> | "(" <exp> ")"
 -- <unop> ::= "-" | "~" | "!" | "++" | "--"
 parseFactor :: [Token] -> Either ParserError (Exp, [Token])
-parseFactor tokens = parseFactor' tokens >>= \ret@(expr, ts') ->
-  case ts' of
-    (TK.Decrement : ts'') -> Right (PostAssignment Decrement expr, ts'')
-    (TK.Increment : ts'') -> Right (PostAssignment Increment expr, ts'')
-    _                     -> Right ret
+parseFactor tokens = parseFactor' tokens >>= \(expr, ts') -> consumePostfix ts' expr
   where parseFactor' :: [Token] -> Either ParserError (Exp, [Token])
         parseFactor' (TK.Decrement : ts) = parseFactor ts >>= \(expr, ts') -> Right (PreAssignment Decrement expr, ts')
         parseFactor' (TK.Increment : ts) = parseFactor ts >>= \(expr, ts') -> Right (PreAssignment Increment expr, ts')
@@ -252,6 +248,11 @@ parseFactor tokens = parseFactor' tokens >>= \ret@(expr, ts') ->
         parseFactor' ts@(TK.Identifier _ : _) = parse ts >>= \(var, ts') -> Right (Var var, ts')
         parseFactor' (t : _) = Left $ UnexpectedToken {got=t, expected="<exp>"}
         parseFactor' [] = Left $ UnexpectedEOF {expected="<exp>"}
+
+        consumePostfix :: [Token] -> Exp -> Either ParserError (Exp, [Token])
+        consumePostfix (TK.Decrement : ts) expr = consumePostfix ts $ PostAssignment Decrement expr
+        consumePostfix (TK.Increment : ts) expr = consumePostfix ts $ PostAssignment Increment expr
+        consumePostfix ts expr = Right (expr, ts)
 
 -- <binop> ::= "-" | "+" | "*" | "/" | "%" | "&&" | "||"
 --           | "==" | "!=" | "<" | "<=" | ">" | ">=" | "="

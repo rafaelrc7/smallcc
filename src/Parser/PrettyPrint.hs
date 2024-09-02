@@ -56,10 +56,10 @@ instance PrettyPrinter Exp where
   pretty (Assignment lhs rhs) = "(" <> lhs' <> " = " <> rhs' <> ")"
     where lhs' = pretty lhs
           rhs' = pretty rhs
-  pretty (PreAssignment op var) = op' <> var'
+  pretty (PreAssignment op var) = "(" <> op' <> var' <> ")"
     where var' = pretty var
           op'  = pretty op
-  pretty (PostAssignment op var) = var' <> op'
+  pretty (PostAssignment op var) = "(" <> var' <> op' <> ")"
     where var' = pretty var
           op'  = pretty op
 
