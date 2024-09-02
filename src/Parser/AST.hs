@@ -37,6 +37,8 @@ data Exp = Constant Constant
          | Unary UnaryOperator Exp
          | Binary BinaryOperator Exp Exp
          | Assignment Exp Exp
+         | PreAssignment UnaryAssignmentOperator Exp
+         | PostAssignment UnaryAssignmentOperator Exp
   deriving (Show)
 
 newtype Constant = CInt Int
@@ -45,6 +47,11 @@ newtype Constant = CInt Int
 data UnaryOperator = Complement
                    | Negate
                    | Not
+                   | UnaryAssignmentOperator UnaryAssignmentOperator
+  deriving (Show)
+
+data UnaryAssignmentOperator = Decrement
+                             | Increment
   deriving (Show)
 
 data BinaryOperator = Add
@@ -65,7 +72,20 @@ data BinaryOperator = Add
                     | LessOrEqual
                     | Greater
                     | GreaterOrEqual
-                    | Assign
+                    | BinaryAssignmentOperator BinaryAssignmentOperator
+  deriving (Show)
+
+data BinaryAssignmentOperator = Assign
+                              | IncAssign
+                              | DecAssign
+                              | MulAssign
+                              | DivAssign
+                              | ModAssign
+                              | BitAndAssign
+                              | BitOrAssign
+                              | BitXORAssign
+                              | BitShiftLeftAssign
+                              | BitShiftRightAssign
   deriving (Show)
 
 type Identifier = Text
@@ -76,25 +96,35 @@ data Precedence = Precedence Associativity Natural
 
 -- https://en.cppreference.com/w/c/language/operator_precedence
 precedence :: BinaryOperator -> Precedence
-precedence Assign         = Precedence RightAssociative 1
-precedence Or             = Precedence LeftAssociative  5
-precedence And            = Precedence LeftAssociative  10
-precedence BitOr          = Precedence LeftAssociative  15
-precedence BitXOR         = Precedence LeftAssociative  20
-precedence BitAnd         = Precedence LeftAssociative  25
-precedence EqualsTo       = Precedence LeftAssociative  30
-precedence NotEqualsTo    = Precedence LeftAssociative  30
-precedence Less           = Precedence LeftAssociative  35
-precedence LessOrEqual    = Precedence LeftAssociative  35
-precedence Greater        = Precedence LeftAssociative  35
-precedence GreaterOrEqual = Precedence LeftAssociative  35
-precedence BitShiftLeft   = Precedence LeftAssociative  40
-precedence BitShiftRight  = Precedence LeftAssociative  40
-precedence Add            = Precedence LeftAssociative  45
-precedence Subtract       = Precedence LeftAssociative  45
-precedence Multiply       = Precedence LeftAssociative  50
-precedence Divide         = Precedence LeftAssociative  50
-precedence Remainder      = Precedence LeftAssociative  50
+precedence (BinaryAssignmentOperator Assign)              = Precedence RightAssociative 1
+precedence (BinaryAssignmentOperator IncAssign)           = Precedence RightAssociative 1
+precedence (BinaryAssignmentOperator DecAssign)           = Precedence RightAssociative 1
+precedence (BinaryAssignmentOperator MulAssign)           = Precedence RightAssociative 1
+precedence (BinaryAssignmentOperator DivAssign)           = Precedence RightAssociative 1
+precedence (BinaryAssignmentOperator ModAssign)           = Precedence RightAssociative 1
+precedence (BinaryAssignmentOperator BitAndAssign)        = Precedence RightAssociative 1
+precedence (BinaryAssignmentOperator BitOrAssign)         = Precedence RightAssociative 1
+precedence (BinaryAssignmentOperator BitXORAssign)        = Precedence RightAssociative 1
+precedence (BinaryAssignmentOperator BitShiftLeftAssign)  = Precedence RightAssociative 1
+precedence (BinaryAssignmentOperator BitShiftRightAssign) = Precedence RightAssociative 1
+precedence Or                                             = Precedence LeftAssociative  5
+precedence And                                            = Precedence LeftAssociative  10
+precedence BitOr                                          = Precedence LeftAssociative  15
+precedence BitXOR                                         = Precedence LeftAssociative  20
+precedence BitAnd                                         = Precedence LeftAssociative  25
+precedence EqualsTo                                       = Precedence LeftAssociative  30
+precedence NotEqualsTo                                    = Precedence LeftAssociative  30
+precedence Less                                           = Precedence LeftAssociative  35
+precedence LessOrEqual                                    = Precedence LeftAssociative  35
+precedence Greater                                        = Precedence LeftAssociative  35
+precedence GreaterOrEqual                                 = Precedence LeftAssociative  35
+precedence BitShiftLeft                                   = Precedence LeftAssociative  40
+precedence BitShiftRight                                  = Precedence LeftAssociative  40
+precedence Add                                            = Precedence LeftAssociative  45
+precedence Subtract                                       = Precedence LeftAssociative  45
+precedence Multiply                                       = Precedence LeftAssociative  50
+precedence Divide                                         = Precedence LeftAssociative  50
+precedence Remainder                                      = Precedence LeftAssociative  50
 
 class Parser a where
   parse :: [Token] -> Either ParserError (a, [Token])
@@ -184,26 +214,44 @@ precedenceClimb minPrecedence ts =
                          RightAssociative -> opPrecedence
                     (right, ts''') <- precedenceClimb nextPrecedence ts''
                     let expr = case op of
-                         Assign -> Assignment left right
-                         _      -> Binary op left right
+                         BinaryAssignmentOperator Assign              -> Assignment left right
+                         BinaryAssignmentOperator IncAssign           -> Assignment left (Binary Add left right)
+                         BinaryAssignmentOperator DecAssign           -> Assignment left (Binary Subtract left right)
+                         BinaryAssignmentOperator MulAssign           -> Assignment left (Binary Multiply left right)
+                         BinaryAssignmentOperator DivAssign           -> Assignment left (Binary Divide left right)
+                         BinaryAssignmentOperator ModAssign           -> Assignment left (Binary Remainder left right)
+                         BinaryAssignmentOperator BitAndAssign        -> Assignment left (Binary BitAnd left right)
+                         BinaryAssignmentOperator BitOrAssign         -> Assignment left (Binary BitOr left right)
+                         BinaryAssignmentOperator BitXORAssign        -> Assignment left (Binary BitXOR left right)
+                         BinaryAssignmentOperator BitShiftLeftAssign  -> Assignment left (Binary BitShiftLeft left right)
+                         BinaryAssignmentOperator BitShiftRightAssign -> Assignment left (Binary BitShiftRight left right)
+                         _                                            -> Binary op left right
                     precedenceClimb' minPrec ts''' expr
               where
                 (Precedence opAssociativity opPrecedence) = precedence op
 
--- <factor> ::= <int> | <unop> <exp> | "(" <exp> ")"
--- <unop> ::= "-" | "~" | "!"
+-- <factor> ::= <int> | <unop> <exp> | <exp> <unop> | "(" <exp> ")"
+-- <unop> ::= "-" | "~" | "!" | "++" | "--"
 parseFactor :: [Token] -> Either ParserError (Exp, [Token])
-parseFactor (TK.Minus : ts) = parseFactor ts >>= \(expr, ts') -> Right (Unary Negate expr, ts')
-parseFactor (TK.Complement : ts) = parseFactor ts >>= \(expr, ts') -> Right (Unary Complement expr, ts')
-parseFactor (TK.Not : ts) = parseFactor ts >>= \(expr, ts') -> Right (Unary Not expr, ts')
-parseFactor (TK.OpenParens : ts) = parse ts >>= \case
-    (expr, TK.CloseParens : ts') -> Right (expr, ts')
-    (_,    t : _)                 -> Left UnexpectedToken {got=t, expected=")" }
-    (_,    [])                    -> Left UnexpectedEOF {expected=")"}
-parseFactor ts@(TK.Constant _ : _) = parse ts >>= \(constant, ts') -> Right (Constant constant, ts')
-parseFactor ts@(TK.Identifier _ : _) = parse ts >>= \(var, ts') -> Right (Var var, ts')
-parseFactor (t : _) = Left $ UnexpectedToken {got=t, expected="<exp>"}
-parseFactor [] = Left $ UnexpectedEOF {expected="<exp>"}
+parseFactor tokens = parseFactor' tokens >>= \ret@(expr, ts') ->
+  case ts' of
+    (TK.Decrement : ts'') -> Right (PostAssignment Decrement expr, ts'')
+    (TK.Increment : ts'') -> Right (PostAssignment Increment expr, ts'')
+    _                     -> Right ret
+  where parseFactor' :: [Token] -> Either ParserError (Exp, [Token])
+        parseFactor' (TK.Decrement : ts) = parseFactor ts >>= \(expr, ts') -> Right (PreAssignment Decrement expr, ts')
+        parseFactor' (TK.Increment : ts) = parseFactor ts >>= \(expr, ts') -> Right (PreAssignment Increment expr, ts')
+        parseFactor' (TK.Minus : ts) = parseFactor ts >>= \(expr, ts') -> Right (Unary Negate expr, ts')
+        parseFactor' (TK.Complement : ts) = parseFactor ts >>= \(expr, ts') -> Right (Unary Complement expr, ts')
+        parseFactor' (TK.Not : ts) = parseFactor ts >>= \(expr, ts') -> Right (Unary Not expr, ts')
+        parseFactor' (TK.OpenParens : ts) = parse ts >>= \case
+            (expr, TK.CloseParens : ts') -> Right (expr, ts')
+            (_,    t : _)                 -> Left UnexpectedToken {got=t, expected=")" }
+            (_,    [])                    -> Left UnexpectedEOF {expected=")"}
+        parseFactor' ts@(TK.Constant _ : _) = parse ts >>= \(constant, ts') -> Right (Constant constant, ts')
+        parseFactor' ts@(TK.Identifier _ : _) = parse ts >>= \(var, ts') -> Right (Var var, ts')
+        parseFactor' (t : _) = Left $ UnexpectedToken {got=t, expected="<exp>"}
+        parseFactor' [] = Left $ UnexpectedEOF {expected="<exp>"}
 
 -- <binop> ::= "-" | "+" | "*" | "/" | "%" | "&&" | "||"
 --           | "==" | "!=" | "<" | "<=" | ">" | ">=" | "="
@@ -228,7 +276,17 @@ instance Parser BinaryOperator where
   parse (TK.Asterisk : ts) = Right (Multiply, ts)
   parse (TK.ForwardSlash : ts) = Right (Divide, ts)
   parse (TK.Percent : ts) = Right (Remainder, ts)
-  parse (TK.Equals : ts) = Right (Assign, ts)
+  parse (TK.Equals : ts) = Right (BinaryAssignmentOperator Assign, ts)
+  parse (TK.IncAssign : ts) = Right (BinaryAssignmentOperator IncAssign, ts)
+  parse (TK.DecAssign : ts) = Right (BinaryAssignmentOperator DecAssign, ts)
+  parse (TK.MulAssign : ts) = Right (BinaryAssignmentOperator MulAssign, ts)
+  parse (TK.DivAssign : ts) = Right (BinaryAssignmentOperator DivAssign, ts)
+  parse (TK.ModAssign : ts) = Right (BinaryAssignmentOperator ModAssign, ts)
+  parse (TK.BitAndAssign : ts) = Right (BinaryAssignmentOperator BitAndAssign, ts)
+  parse (TK.BitOrAssign : ts) = Right (BinaryAssignmentOperator BitOrAssign, ts)
+  parse (TK.BitXORAssign : ts) = Right (BinaryAssignmentOperator BitXORAssign, ts)
+  parse (TK.BitShiftLeftAssign : ts) = Right (BinaryAssignmentOperator BitShiftLeftAssign, ts)
+  parse (TK.BitShiftRightAssign : ts) = Right (BinaryAssignmentOperator BitShiftRightAssign, ts)
   parse (t : _) = Left UnexpectedToken {got=t, expected="<binop>"}
   parse [] = Left UnexpectedEOF {expected="<binop>"}
 

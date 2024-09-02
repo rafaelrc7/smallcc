@@ -93,5 +93,13 @@ instance SemanticAnalyzer Exp where
     do (var',  st')  <- resolve st var
        (expr', st'') <- resolve st' expr
        Right (Assignment var' expr', st'')
-  resolve _ (Assignment lval _) = Left $ InvaliedLHS lval
+  resolve _ (Assignment lval _) = Left $ InvalidLHS lval
+  resolve st (PreAssignment op var@(Var _)) =
+    do (var', st') <- resolve st var
+       Right (PreAssignment op var', st')
+  resolve _ (PreAssignment _ var) = Left $ InvalidLHS var
+  resolve st (PostAssignment op var@(Var _)) =
+    do (var', st') <- resolve st var
+       Right (PostAssignment op var', st')
+  resolve _ (PostAssignment _ var) = Left $ InvalidLHS var
 

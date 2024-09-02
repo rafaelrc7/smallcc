@@ -5,6 +5,6 @@ import           Parser.AST (Exp)
 
 data SemanticError = DuplicateVariableDeclaration Text
                    | UndefinedVariableUse Text
-                   | InvaliedLHS Exp
+                   | InvalidLHS Exp
   deriving (Show)
 

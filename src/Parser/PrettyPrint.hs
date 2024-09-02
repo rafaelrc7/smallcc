@@ -56,6 +56,12 @@ instance PrettyPrinter Exp where
   pretty (Assignment lhs rhs) = "(" <> lhs' <> " = " <> rhs' <> ")"
     where lhs' = pretty lhs
           rhs' = pretty rhs
+  pretty (PreAssignment op var) = op' <> var'
+    where var' = pretty var
+          op'  = pretty op
+  pretty (PostAssignment op var) = var' <> op'
+    where var' = pretty var
+          op'  = pretty op
 
 instance PrettyPrinter Constant where
   pretty :: Constant -> Text
@@ -63,29 +69,44 @@ instance PrettyPrinter Constant where
 
 instance PrettyPrinter UnaryOperator where
   pretty :: UnaryOperator -> Text
-  pretty Complement = "~"
-  pretty Negate     = "-"
-  pretty Not        = "!"
+  pretty Complement                   = "~"
+  pretty Negate                       = "-"
+  pretty Not                          = "!"
+  pretty (UnaryAssignmentOperator op) = pretty op
+
+instance PrettyPrinter UnaryAssignmentOperator where
+  pretty :: UnaryAssignmentOperator -> Text
+  pretty Decrement = "--"
+  pretty Increment = "++"
 
 instance PrettyPrinter BinaryOperator where
   pretty :: BinaryOperator -> Text
-  pretty Or             = "||"
-  pretty And            = "&&"
-  pretty BitOr          = "|"
-  pretty BitXOR         = "^"
-  pretty BitAnd         = "&"
-  pretty EqualsTo       = "=="
-  pretty NotEqualsTo    = "!="
-  pretty Less           = "<"
-  pretty LessOrEqual    = "<="
-  pretty Greater        = ">"
-  pretty GreaterOrEqual = ">="
-  pretty BitShiftLeft   = "<<"
-  pretty BitShiftRight  = ">>"
-  pretty Add            = "+"
-  pretty Subtract       = "-"
-  pretty Multiply       = "*"
-  pretty Divide         = "/"
-  pretty Remainder      = "%"
-  pretty Assign         = "="
-
+  pretty Or                                             = "||"
+  pretty And                                            = "&&"
+  pretty BitOr                                          = "|"
+  pretty BitXOR                                         = "^"
+  pretty BitAnd                                         = "&"
+  pretty EqualsTo                                       = "=="
+  pretty NotEqualsTo                                    = "!="
+  pretty Less                                           = "<"
+  pretty LessOrEqual                                    = "<="
+  pretty Greater                                        = ">"
+  pretty GreaterOrEqual                                 = ">="
+  pretty BitShiftLeft                                   = "<<"
+  pretty BitShiftRight                                  = ">>"
+  pretty Add                                            = "+"
+  pretty Subtract                                       = "-"
+  pretty Multiply                                       = "*"
+  pretty Divide                                         = "/"
+  pretty Remainder                                      = "%"
+  pretty (BinaryAssignmentOperator Assign)              = "="
+  pretty (BinaryAssignmentOperator IncAssign)           = "+="
+  pretty (BinaryAssignmentOperator DecAssign)           = "-="
+  pretty (BinaryAssignmentOperator MulAssign)           = "*="
+  pretty (BinaryAssignmentOperator DivAssign)           = "/="
+  pretty (BinaryAssignmentOperator ModAssign)           = "%="
+  pretty (BinaryAssignmentOperator BitAndAssign)        = "&="
+  pretty (BinaryAssignmentOperator BitOrAssign)         = "|="
+  pretty (BinaryAssignmentOperator BitXORAssign)        = "^="
+  pretty (BinaryAssignmentOperator BitShiftLeftAssign)  = "<<="
+  pretty (BinaryAssignmentOperator BitShiftRightAssign) = ">>="

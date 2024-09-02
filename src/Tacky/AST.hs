@@ -138,6 +138,28 @@ translateExp s (P.Assignment lhs rhs) = (lhsInstructions
                                         , s'')
   where (lhsInstructions, lhs', s') = translateExp s lhs
         (rhsInstrucitons, rhs', s'') = translateExp s' rhs
+translateExp s (P.PreAssignment op var) = ( varInstructions
+                                              ++ [ Binary { binaryOperator = translateUnaryAssignment op
+                                                          , binarySrcs = (var', Const 1)
+                                                          , binaryDst = var'}
+                                                 ]
+                                          , var'
+                                          , s'
+                                          )
+  where (varInstructions, var', s') = translateExp s var
+translateExp s (P.PostAssignment op var) = ( varInstructions
+                                              ++ [ Copy { copySrc = var'
+                                                        , copyDst = tmp
+                                                        }
+                                                 , Binary { binaryOperator = translateUnaryAssignment op
+                                                          , binarySrcs = (var', Const 1)
+                                                          , binaryDst = var'}
+                                                 ]
+                                          , tmp
+                                          , s''
+                                          )
+  where (varInstructions, var', s') = translateExp s var
+        (tmp, s'') = newTmpVar s'
 
 translateOr :: State -> (P.Exp, P.Exp) -> ([Instruction], Val, State)
 translateOr s (expr1,  expr2) = (instructions, resultVar, s''''')
@@ -176,31 +198,36 @@ translateAnd s (expr1,  expr2) = (instructions, resultVar, s''''')
                        ]
 
 translateUnaryOp :: P.UnaryOperator -> UnaryOperator
-translateUnaryOp P.Complement = Complement
-translateUnaryOp P.Negate     = Negate
-translateUnaryOp P.Not        = Not
+translateUnaryOp P.Complement                  = Complement
+translateUnaryOp P.Negate                      = Negate
+translateUnaryOp P.Not                         = Not
+translateUnaryOp (P.UnaryAssignmentOperator _) = undefined
+
+translateUnaryAssignment :: P.UnaryAssignmentOperator -> BinaryOperator
+translateUnaryAssignment P.Decrement = Subtract
+translateUnaryAssignment P.Increment = Add
 
 translateBinaryOp :: P.BinaryOperator -> BinaryOperator
-translateBinaryOp P.BitOr          = BitOr
-translateBinaryOp P.BitXOR         = BitXOR
-translateBinaryOp P.BitAnd         = BitAnd
-translateBinaryOp P.EqualsTo       = EqualsTo
-translateBinaryOp P.NotEqualsTo    = NotEqualsTo
-translateBinaryOp P.Less           = Less
-translateBinaryOp P.LessOrEqual    = LessOrEqual
-translateBinaryOp P.Greater        = Greater
-translateBinaryOp P.GreaterOrEqual = GreaterOrEqual
-translateBinaryOp P.BitShiftLeft   = BitShiftLeft
-translateBinaryOp P.BitShiftRight  = BitShiftRight
-translateBinaryOp P.Add            = Add
-translateBinaryOp P.Subtract       = Subtract
-translateBinaryOp P.Multiply       = Multiply
-translateBinaryOp P.Divide         = Divide
-translateBinaryOp P.Remainder      = Remainder
+translateBinaryOp P.BitOr                        = BitOr
+translateBinaryOp P.BitXOR                       = BitXOR
+translateBinaryOp P.BitAnd                       = BitAnd
+translateBinaryOp P.EqualsTo                     = EqualsTo
+translateBinaryOp P.NotEqualsTo                  = NotEqualsTo
+translateBinaryOp P.Less                         = Less
+translateBinaryOp P.LessOrEqual                  = LessOrEqual
+translateBinaryOp P.Greater                      = Greater
+translateBinaryOp P.GreaterOrEqual               = GreaterOrEqual
+translateBinaryOp P.BitShiftLeft                 = BitShiftLeft
+translateBinaryOp P.BitShiftRight                = BitShiftRight
+translateBinaryOp P.Add                          = Add
+translateBinaryOp P.Subtract                     = Subtract
+translateBinaryOp P.Multiply                     = Multiply
+translateBinaryOp P.Divide                       = Divide
+translateBinaryOp P.Remainder                    = Remainder
 
-translateBinaryOp P.And            = undefined
-translateBinaryOp P.Or             = undefined
-translateBinaryOp P.Assign         = undefined
+translateBinaryOp P.And                          = undefined
+translateBinaryOp P.Or                           = undefined
+translateBinaryOp (P.BinaryAssignmentOperator _) = undefined
 
 newVar :: Maybe Text -> State -> (Val, State)
 newVar label state@State{ stateLastTmp = lastTmp } = (Var newTmpLabel, state{ stateLastTmp = newTmp })
