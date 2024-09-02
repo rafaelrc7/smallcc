@@ -3,7 +3,6 @@
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     systems.url = "github:nix-systems/default-linux";
     flake-parts.url = "github:hercules-ci/flake-parts";
-    haskell-flake.url = "github:srid/haskell-flake";
     treefmt-nix = {
       url = "github:numtide/treefmt-nix";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -14,28 +13,25 @@
     inputs.flake-parts.lib.mkFlake { inherit inputs; } {
       systems = import inputs.systems;
       imports = [
-        inputs.haskell-flake.flakeModule
         inputs.treefmt-nix.flakeModule
         inputs.flake-parts.flakeModules.easyOverlay
       ];
 
-      perSystem = { self', ... }: {
-        haskellProjects.default = {
-          projectFlakeName = "smallcc";
+      perSystem = { config, pkgs, ... }: {
+        devShells.default = import ./shell.nix { inherit pkgs; };
 
-          devShell = {
-            enable = true;
-            hlsCheck.enable = true;
-            tools = hp: {
-              inherit (hp) cabal-install haskell-language-server;
-            };
-          };
+        packages = rec {
+          default = smallcc;
+          smallcc = pkgs.callPackage ./default.nix { };
         };
 
-        packages.default = self'.packages.smallcc;
+        apps.default = {
+          type = "app";
+          program = "${config.packages.smallcc}/bin/smallcc";
+        };
 
         overlayAttrs = {
-          inherit (self'.packages) smallcc;
+          inherit (config.packages) smallcc;
         };
 
         treefmt.config = {
