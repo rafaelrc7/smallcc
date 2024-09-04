@@ -1,9 +1,11 @@
 module Parser where
 
-import           Lexer.Token
-import           Parser.AST
-import           Parser.Error
+import           Control.Monad.Except (runExceptT)
+import           Control.Monad.State  (evalState)
+import           Lexer.Token          (Token)
+import           Parser.AST           (Parser (parse), Program)
+import           Parser.Error         (ParserError)
 
 parseProgram :: [Token] -> Either ParserError Program
-parseProgram ts = parse ts >>= \(program, _) -> Right program
+parseProgram = evalState (runExceptT parse)
 
