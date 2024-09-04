@@ -4,6 +4,6 @@
 }:
 let hscompose = haskell.lib.compose;
 in lib.pipe
-  (haskellPackages.callCabal2nix "smallcc" (lib.cleanSource ./.) {})
+  (haskellPackages.callCabal2nix "smallcc" (lib.cleanSource ./.) { })
   [ hscompose.dontHaddock ]
 
