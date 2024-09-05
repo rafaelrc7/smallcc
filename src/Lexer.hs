@@ -1,178 +1,171 @@
+{-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Lexer where
 
-import           Data.Char         (isAlpha, isDigit, isSpace)
-import           Data.Int          (Int64)
-import qualified Data.Text         as T
-import qualified Data.Text.Lazy    as L
-import qualified Data.Text.Lazy.IO as L
-import qualified Data.Text.Read    as T
-
 import           Lexer.Token
 
-data Lexer = Lexer { lexerReadBuffer      :: L.Text
-                   , lexerRemainingBuffer :: L.Text
-                   }
-  deriving (Show)
+import           Control.Monad.Except (ExceptT, MonadError (throwError),
+                                       handleError, runExceptT)
+import           Control.Monad.State  (MonadState (get, put), State, evalState,
+                                       modify)
+import           Data.Char            (isAlpha, isDigit, isSpace)
+import           Data.Int             (Int64)
+import qualified Data.Text            as T
+import qualified Data.Text.Lazy       as L
+import qualified Data.Text.Lazy.IO    as L
+import qualified Data.Text.Read       as T
 
-newtype Lexeme = Lexeme T.Text
-  deriving (Show)
+-- WriterT ?
+type LexerMonad a = ExceptT LexerError (State LexerState) a
+
+type Lexeme = T.Text
+type Buffer = L.Text
+
+type LexerState = (Buffer, Buffer, Lexeme)
+
+resetLexeme :: LexerState -> LexerState
+resetLexeme (readBuff, remainBuff, _) = (readBuff, remainBuff, T.empty)
+
+catchST :: (LexerError -> LexerMonad a) -> LexerMonad a -> LexerMonad a
+catchST handler action = get >>= \st -> handleError (\e -> put st >> handler e) action
 
 data LexerError = UnknownToken { unknownLexeme       :: T.Text
                                , unknownLexemeLine   :: Int64
                                , unknownLexemeColumn :: Int64
                                }
                 | MalformedToken
-                | InternalError String
+                | MalformedConstant String
                 | EOF
   deriving (Show)
 
-fromFile :: FilePath -> IO Lexer
-fromFile filePath =
-  L.readFile filePath >>= \sourceBuffer ->
-  return $ Lexer { lexerRemainingBuffer = sourceBuffer
-                 , lexerReadBuffer = L.empty
-                 }
+fromFile :: FilePath -> IO Buffer
+fromFile = L.readFile
 
-scanUntilEOF :: Lexer -> Either LexerError [Token]
-scanUntilEOF lexer = case nextToken lexer of
-                       Right (token, lexer') -> scanUntilEOF lexer' >>= \tokens' ->
-                                                Right $ token : tokens'
-                       Left EOF -> Right []
-                       Left err -> Left err
+scanUntilEOF :: Buffer -> Either LexerError [Token]
+scanUntilEOF buffer = evalState (runExceptT scanUntilEOF') (L.empty, buffer, T.empty)
+  where scanUntilEOF' :: LexerMonad [Token]
+        scanUntilEOF' = handleError handler $ (:) <$> nextToken <*> scanUntilEOF'
+          where handler :: LexerError -> LexerMonad [Token]
+                handler EOF = return []
+                handler e   = throwError e
 
+nextToken :: LexerMonad Token
+nextToken = modify resetLexeme >> scanToken
 
-nextToken :: Lexer -> Either LexerError (Token, Lexer)
-nextToken lexer = scanToken lexer newLexeme
-  where newLexeme = Lexeme T.empty
+scanToken :: LexerMonad Token
+scanToken = peekSymbol >>= \case
+  Nothing  -> throwError EOF
+  Just '(' -> consumeSymbol >> return OpenParens
+  Just ')' -> consumeSymbol >> return CloseParens
+  Just '{' -> consumeSymbol >> return OpenBrace
+  Just '}' -> consumeSymbol >> return CloseBrace
+  Just ';' -> consumeSymbol >> return Semicolon
+  Just '~' -> consumeSymbol >> return Complement
+  Just s | isSpace  s -> consumeSymbol >> nextToken
+         | isDigit  s -> consumeSymbol >> scanConstant
+         | isAlpha_ s -> consumeSymbol >> scanIdentifier
+         | otherwise  -> scanCompoundToken [ ("=", Equals),       ("==", EqualsTo)
+                                           , ("!", Not),          ("!=", NotEqualsTo)
+                                           , ("+", Plus),         ("+=", IncAssign),      ("++", Increment)
+                                           , ("-", Minus),        ("-=", DecAssign),      ("--", Decrement)
+                                           , ("*", Asterisk),     ("*=", MulAssign)
+                                           , ("/", ForwardSlash), ("/=", DivAssign)
+                                           , ("%", Percent),      ("%=", ModAssign)
+                                           , ("^", BitXOR),       ("^=", BitXORAssign)
+                                           , ("&", BitAnd),       ("&=", BitAndAssign),   ("&&", And)
+                                           , ("|", BitOr),        ("|=", BitOrAssign),    ("||", Or)
+                                           , ("<", Less),         ("<=", LessOrEqual),    ("<<", BitShiftLeft),  ("<<=", BitShiftLeftAssign)
+                                           , (">", Greater),      (">=", GreaterOrEqual), (">>", BitShiftRight), (">>=", BitShiftRightAssign)]
 
-scanToken :: Lexer -> Lexeme -> Either LexerError (Token, Lexer)
-scanToken lexer lexeme =
-  case nextSymbol lexer lexeme of
-    Nothing -> Left EOF
-    Just (symbol, lexer', lexeme') ->
-      case symbol of
-        '(' -> retToken OpenParens
-        ')' -> retToken CloseParens
-        '{' -> retToken OpenBrace
-        '}' -> retToken CloseBrace
-        ';' -> retToken Semicolon
-        '~' -> retToken Complement
-        _ | isSpace symbol -> nextToken lexer'
-          | isDigit symbol -> scanConstant lexer' lexeme'
-          | isAlpha_ symbol -> scanIdentifier lexer' lexeme'
-          | otherwise -> case scanCompoundToken' [ ("=", Equals),       ("==", EqualsTo)
-                                                 , ("!", Not),          ("!=", NotEqualsTo)
-                                                 , ("+", Plus),         ("+=", IncAssign),      ("++", Increment)
-                                                 , ("-", Minus),        ("-=", DecAssign),      ("--", Decrement)
-                                                 , ("*", Asterisk),     ("*=", MulAssign)
-                                                 , ("/", ForwardSlash), ("/=", DivAssign)
-                                                 , ("%", Percent),      ("%=", ModAssign)
-                                                 , ("^", BitXOR),       ("^=", BitXORAssign)
-                                                 , ("&", BitAnd),       ("&=", BitAndAssign),   ("&&", And)
-                                                 , ("|", BitOr),        ("|=", BitOrAssign),    ("||", Or)
-                                                 , ("<", Less),         ("<=", LessOrEqual),    ("<<", BitShiftLeft),  ("<<=", BitShiftLeftAssign)
-                                                 , (">", Greater),      (">=", GreaterOrEqual), (">>", BitShiftRight), (">>=", BitShiftRightAssign)]
-                         of Left _ -> scanUnknownToken lexer lexeme
-                            tok    -> tok
-      where retToken :: Token -> Either LexerError (Token, Lexer)
-            retToken token = Right (token, lexer')
+consumeSymbol :: LexerMonad (Maybe Char)
+consumeSymbol = get >>= \(readBuff, remainBuff, lexeme) ->
+  case L.uncons remainBuff of
+    Nothing -> return Nothing
+    Just (symbol, remainBuff') ->
+      do put (L.snoc readBuff symbol, remainBuff', lexeme `T.snoc` symbol)
+         return $ Just symbol
 
-            scanCompoundToken' :: [(String, Token)] -> Either LexerError (Token, Lexer)
-            scanCompoundToken' = scanCompoundToken lexer lexeme
+peekSymbol :: LexerMonad (Maybe Char)
+peekSymbol = get >>= \(_, remainBuff, _) ->
+  case L.uncons remainBuff of
+    Just (symbol, _) -> return $ Just symbol
+    Nothing          -> return Nothing
 
-nextSymbol :: Lexer -> Lexeme -> Maybe (Char, Lexer, Lexeme)
-nextSymbol lexer (Lexeme lexeme) =
-  do (symbol, remainingBuffer) <- L.uncons $ lexerRemainingBuffer lexer
-     let readBuffer = L.snoc (lexerReadBuffer lexer) symbol
-     return (symbol
-            , lexer { lexerRemainingBuffer = remainingBuffer
-                    , lexerReadBuffer = readBuffer
-                    }
-            , Lexeme $ T.snoc lexeme symbol
-            )
+scanConstant :: LexerMonad Token
+scanConstant = peekSymbol >>= \case
+  Nothing -> token
+  Just s | isBoundary s -> token
+         | isDigit    s -> consumeSymbol >> scanConstant
+         | otherwise    -> scanUnknownToken
+  where token :: LexerMonad Token
+        token = do (_, _, lexeme) <- get
+                   case T.decimal lexeme of
+                      Right (value, _) -> return $ Constant value
+                      Left  err        -> throwError $ MalformedConstant err
 
-scanConstant :: Lexer -> Lexeme -> Either LexerError (Token, Lexer)
-scanConstant lexer lexeme@(Lexeme lexemeBuffer) =
-  case nextSymbol lexer lexeme of
-    Nothing -> token
-    Just (symbol, lexer', lexeme')
-      | isBoundary symbol -> token
-      | isDigit symbol -> scanConstant lexer' lexeme'
-      | otherwise -> scanUnknownToken lexer' lexeme'
-  where token :: Either LexerError (Token, Lexer)
-        token = case T.decimal lexemeBuffer of
-                  Right (value, _) -> Right (Constant value, lexer)
-                  Left err         -> Left $ InternalError err
+scanIdentifier :: LexerMonad Token
+scanIdentifier = peekSymbol >>= \case
+  Nothing -> token
+  Just s | isAlphaNum_ s -> consumeSymbol >> scanIdentifier
+         | otherwise -> token
+  where token :: LexerMonad Token
+        token = do (_, _, lexeme) <- get
+                   case parseKeyword lexeme of
+                     Just keyword -> return $ Keyword keyword
+                     Nothing      -> return $ Identifier lexeme
 
-scanIdentifier :: Lexer -> Lexeme -> Either LexerError (Token, Lexer)
-scanIdentifier lexer lexeme@(Lexeme lexemeBuffer) =
-  case nextSymbol lexer lexeme of
-    Nothing -> token
-    Just (symbol, lexer', lexeme')
-      | isAlphaNum_ symbol -> scanIdentifier lexer' lexeme'
-      | otherwise -> token
-  where token :: Either LexerError (Token, Lexer)
-        token = case parseKeyword lexemeBuffer of
-                  Just keyword -> Right (Keyword keyword, lexer)
-                  Nothing      -> Right (Identifier lexemeBuffer, lexer)
+scanCompoundToken :: [(String, Token)] -> LexerMonad Token
+scanCompoundToken [] = throwError MalformedToken
+scanCompoundToken tokens =
+  do peekSymbol >>= \case
+       Nothing -> throwError MalformedToken
+       Just s  -> catchST ret $ consumeSymbol >> scanCompoundToken tokens'
+         where scanCompoundToken' :: [(String, Token)] -> (Maybe Token, [(String, Token)])
+               scanCompoundToken' [] = (Nothing, [])
+               scanCompoundToken' (("", _) : ts) = scanCompoundToken' ts
+               scanCompoundToken' ((c : "", t) : ts)
+                 | c == s = (Just t, ts')
+                 | otherwise = (t', ts')
+                 where (t', ts') = scanCompoundToken' ts
+               scanCompoundToken' ((c : cs, t) : ts)
+                 | c == s = (t', (cs, t) : ts')
+                 | otherwise = (t', ts')
+                 where (t', ts') = scanCompoundToken' ts
+               (token', tokens') = scanCompoundToken' tokens
 
-scanCompoundToken :: Lexer -> Lexeme -> [(String, Token)] -> Either LexerError (Token, Lexer)
-scanCompoundToken _ _ [] = Left MalformedToken
-scanCompoundToken lexer lexeme tokens =
-  case nextSymbol lexer lexeme of
-    Nothing                         -> Left MalformedToken
-    Just (symbol', lexer', lexeme') ->
-      case scanCompoundToken lexer' lexeme' tokens' of
-        Left err -> case token' of
-                      Nothing    -> Left err
-                      Just token -> Right (token, lexer')
-        ret      -> ret
-      where scanCompoundToken' :: [(String, Token)] -> (Maybe Token, [(String, Token)])
-            scanCompoundToken' [] = (Nothing, [])
-            scanCompoundToken' (("", _) : ts) = scanCompoundToken' ts
-            scanCompoundToken' ((c : "", t) : ts)
-              | c == symbol' = (Just t, ts')
-              | otherwise = (t', ts')
-              where (t', ts') = scanCompoundToken' ts
-            scanCompoundToken' ((c : cs, t) : ts)
-              | c == symbol' = (t', (cs, t) : ts')
-              | otherwise = (t', ts')
-              where (t', ts') = scanCompoundToken' ts
+               ret :: LexerError -> LexerMonad Token
+               ret e = case token' of
+                         Nothing -> throwError e
+                         Just t  -> consumeSymbol >> return t
 
-            (token', tokens') = scanCompoundToken' tokens
+scanUnknownToken :: LexerMonad Token
+scanUnknownToken = peekSymbol >>= \case
+  Nothing -> unknownToken
+  Just s | isBoundary s -> unknownToken
+         | otherwise    -> consumeSymbol >> scanUnknownToken
 
-scanUnknownToken :: Lexer -> Lexeme -> Either LexerError (Token, Lexer)
-scanUnknownToken lexer lexeme =
-  case nextSymbol lexer lexeme of
-    Nothing -> err
-    Just (symbol, lexer', lexeme') | isBoundary symbol -> err
-                                   | otherwise -> scanUnknownToken lexer' lexeme'
-  where err = Left $ unknownToken lexer lexeme
+unknownToken :: LexerMonad Token
+unknownToken = do (line, col) <- getLexemeLineColumn
+                  (_, _, lexeme) <- get
+                  throwError UnknownToken { unknownLexeme = lexeme
+                                          , unknownLexemeLine = line
+                                          , unknownLexemeColumn = col
+                                          }
 
-unknownToken :: Lexer -> Lexeme -> LexerError
-unknownToken lexer lexeme@(Lexeme lexemeBuff) =
-  UnknownToken { unknownLexeme = lexemeBuff
-               , unknownLexemeLine = line
-               , unknownLexemeColumn = col
-               }
-  where (line, col) = getLexemeLineColumn lexer lexeme
+getLexemeLineColumn :: LexerMonad (Int64, Int64)
+getLexemeLineColumn = do (readBuff, _, lexeme) <- get
+                         let buffUntilLexeme = L.dropEnd (fromIntegral $ T.length lexeme) readBuff
+                         let lexemeLine = 1 + L.count "\n" buffUntilLexeme
+                         let lexemeColumn = 1 + L.length (L.takeWhileEnd (/= '\n') buffUntilLexeme)
+                         return (lexemeLine, lexemeColumn)
 
-getLexemeLineColumn :: Lexer -> Lexeme -> (Int64, Int64)
-getLexemeLineColumn lexer (Lexeme lexeme) = (lexemeLine, lexemeColumn)
-  where readBuffer = lexerReadBuffer lexer
-        bufferUntilLexeme = L.dropEnd (fromIntegral $ T.length lexeme) readBuffer
-        lexemeLine = 1 + L.count "\n" bufferUntilLexeme
-        lexemeColumn = 1 + L.length (L.takeWhileEnd (/= '\n') bufferUntilLexeme)
+isAtEnd :: LexerMonad Bool
+isAtEnd = get >>= \(_, remainBuff, _) -> return $ L.null remainBuff
 
-isAtEnd :: Lexer -> Bool
-isAtEnd = L.null . lexerRemainingBuffer
-
-lookAhead :: Lexer -> Int64 -> Maybe Char
-lookAhead lexer index | index >= L.length remainingBuffer = Nothing
-                      | otherwise = Just $ L.index remainingBuffer index
-  where remainingBuffer = lexerRemainingBuffer lexer
+lookAhead :: Int64 -> LexerMonad (Maybe Char)
+lookAhead i = get >>= \(_, remainBuff, _) -> if i >= L.length remainBuff then return Nothing
+                                             else return . Just $ L.index remainBuff i
 
 isAlpha_ :: Char -> Bool
 isAlpha_ '_' = True
