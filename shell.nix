@@ -10,6 +10,7 @@ haskell.shellFor {
       hlint
       ormolu
       (ghc.withPackages (p: [ p.haskell-language-server ]))
+      gcc
     ];
 }
 
