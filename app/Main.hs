@@ -16,6 +16,7 @@ import           System.Process    (proc, readCreateProcessWithExitCode, shell)
 
 import           AssemblyEmitter
 import           AssemblyGenerator
+import           Error
 import           Lexer
 import           Parser
 import           Pretty
@@ -53,7 +54,7 @@ main = do
   lexerResult <- fromFile preProcessedFile <&> scanUntilEOF (T.pack preProcessedFile)
   cleanup preProcessedFile
   tokens <- case lexerResult of
-              Left err -> do print $ pretty err
+              Left err -> do putError err
                              exitFailure
               Right tokens -> do when (targetStage == S.CompilerMode S.LexerMode) $
                                    do print tokens
@@ -62,7 +63,7 @@ main = do
 
   -- Parser
   ast <- case parseProgram tokens of
-              Left err -> do print $ pretty err
+              Left err -> do putError err
                              exitFailure
               Right ast -> do when (targetStage == S.CompilerMode S.ParserMode) $
                                 do TIO.putStrLn $ pretty ast
