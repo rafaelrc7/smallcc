@@ -1,12 +1,12 @@
-{-# LANGUAGE InstanceSigs #-}
+{-# LANGUAGE InstanceSigs      #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Lexer.Error where
 
-import Lexer.Token
-import Pretty (PrettyPrinter(..))
+import           Lexer.Token
+import           Pretty      (PrettyPrinter (..))
 
-import Data.Text (Text, pack)
+import           Data.Text   (Text, pack)
 
 data LexerError = LexerError LexerErrorType Lexeme Location
   deriving (Show)

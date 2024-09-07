@@ -1,11 +1,13 @@
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Lexer.Scanner where
 
-import Lexer.Token ( Lexeme, Token(..), TokenType(..), Location(..), scanKeyword )
-import Lexer.Error ( LexerError(..), LexerErrorType(..) )
+import           Lexer.Error          (LexerError (..), LexerErrorType (..))
+import           Lexer.Token          (Lexeme, Location (..), Token (..),
+                                       TokenType (..), scanKeyword)
 
+import           Control.Monad        (void, when)
 import           Control.Monad.Except (ExceptT, MonadError (throwError),
                                        handleError)
 import           Control.Monad.State  (MonadState (get, put), State, modify)
@@ -52,6 +54,7 @@ nextToken = modify resetLexeme >> scanToken
 scanToken :: LexerMonad Token
 scanToken = peekSymbol >>= \case
   Nothing  -> err EOF
+  Just '#' -> scanLineMarker >> nextToken
   Just '(' -> consumeSymbol >> ret OpenParens
   Just ')' -> consumeSymbol >> ret CloseParens
   Just '{' -> consumeSymbol >> ret OpenBrace
@@ -73,6 +76,25 @@ scanToken = peekSymbol >>= \case
                                            , ("|", BitOr),        ("|=", BitOrAssign),    ("||", Or)
                                            , ("<", Less),         ("<=", LessOrEqual),    ("<<", BitShiftLeft),  ("<<=", BitShiftLeftAssign)
                                            , (">", Greater),      (">=", GreaterOrEqual), (">>", BitShiftRight), (">>=", BitShiftRightAssign)]
+
+setLine :: Int64 -> LexerMonad ()
+setLine lin = get >>= \(LexerState (RemainingBuffer b Location {lexemeLine=_, lexemeColumn=c}) l) ->
+  put $ LexerState (RemainingBuffer b Location {lexemeLine=lin, lexemeColumn=c}) l
+
+scanLineMarker :: LexerMonad ()
+scanLineMarker = do (LexerState (RemainingBuffer _ Location {lexemeColumn=c}) _) <- get
+                    _ <- consumeSymbol -- #
+                    when (c /= 1) $ void scanUnknownToken
+                    _ <- consumeSymbol -- <space>
+                    modify resetLexeme
+                    scanConstant >>=
+                      \case Token (Constant l) _ _ -> consumeUntilEOL >> setLine (fromIntegral l)
+                            _ -> consumeUntilEOL
+  where consumeUntilEOL :: LexerMonad ()
+        consumeUntilEOL = consumeSymbol >>= \case
+                            Just '\n' -> return ()
+                            Nothing   -> return ()
+                            _         -> consumeUntilEOL
 
 consumeSymbol :: LexerMonad (Maybe Char)
 consumeSymbol = do (LexerState (RemainingBuffer b bloc) (CurrentLexeme l lloc)) <- get

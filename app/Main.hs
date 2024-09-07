@@ -44,7 +44,7 @@ main = do
 
   -- Preprocessor
   let preProcessedFile = replaceExtension sourceFile ".i"
-  runGCC [ "-E", "-P", sourceFile, "-o", preProcessedFile ]
+  runGCC [ "-E", sourceFile, "-o", preProcessedFile ]
   when (targetStage == S.PreProcessorMode) exitSuccess
 
   -- C Compiler

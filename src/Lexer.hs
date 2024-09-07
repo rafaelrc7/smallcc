@@ -19,7 +19,7 @@ fromFile = L.readFile
 
 scanUntilEOF :: Buffer -> Either LexerError [Token]
 scanUntilEOF buffer = evalState (runExceptT scanUntilEOF') $ LexerState (RemainingBuffer buffer loc) (CurrentLexeme T.empty loc)
-  where loc = Location {lexemeColumn=0, lexemeLine=1}
+  where loc = Location {lexemeColumn=1, lexemeLine=1}
         scanUntilEOF' :: LexerMonad [Token]
         scanUntilEOF' = handleError handler $ (:) <$> nextToken <*> scanUntilEOF'
           where handler :: LexerError -> LexerMonad [Token]

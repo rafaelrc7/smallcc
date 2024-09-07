@@ -1,11 +1,11 @@
-{-# LANGUAGE InstanceSigs #-}
+{-# LANGUAGE InstanceSigs      #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Pretty where
 
-import Data.Text (Text, pack)
+import           Data.Int  (Int64)
+import           Data.Text (Text, pack)
 import qualified Data.Text as T
-import Data.Int (Int64)
 
 class PrettyPrinter a where
   pretty :: a -> Text
