@@ -9,6 +9,7 @@ import           Pretty      (PrettyPrinter (..))
 
 import           Data.Text   (Text, pack)
 import           Error       (Error)
+import           Location
 
 data LexerError = LexerError LexerErrorType Lexeme Location
   deriving (Show)
@@ -17,18 +18,21 @@ data LexerErrorType = ReachedEOF
                     | UnknownToken
                     | MalformedToken
                     | MalformedConstant String
-                    | UnexpectedSymbol { expected :: Char
-                                       , got      :: ScannedSymbol
-                                       }
+                    | UnexpectedSymbol Char (Maybe Char)
   deriving (Show)
+
+instance Locatable LexerError where
+  locate (LexerError _ _ loc) = loc
 
 instance PrettyPrinter LexerError where
   pretty :: LexerError -> Text
-  pretty (LexerError ReachedEOF            lexeme location) = pretty location <> ": error: Reached EOF while scanning '" <> lexeme <> "' at "
-  pretty (LexerError UnknownToken          lexeme location) = pretty location <> ": error: Unknown token '"              <> lexeme <> "' at "
-  pretty (LexerError MalformedToken        lexeme location) = pretty location <> ": error: Malformed token '"            <> lexeme <> "' at "
-  pretty (LexerError (MalformedConstant e) lexeme location) = pretty location <> ": error: Malformed constant literal '" <> lexeme <> "' at " <> ": " <> pack e
-  pretty (LexerError UnexpectedSymbol {expected=e, got=g} lexeme location) = pretty location <> ": error: Expected symbol '" <> pretty e <> "' but got a '" <> pretty g <> "' in '" <> lexeme <> "' at "
+  pretty (LexerError ReachedEOF             lexeme _) = "Reached EOF while scanning '" <> lexeme <> "'"
+  pretty (LexerError UnknownToken           lexeme _) = "Unknown token '"              <> lexeme <> "'"
+  pretty (LexerError MalformedToken         lexeme _) = "Malformed token '"            <> lexeme <> "'"
+  pretty (LexerError (MalformedConstant e)  lexeme _) = "Malformed constant literal '" <> lexeme <> "': " <> pack e
+  pretty (LexerError (UnexpectedSymbol e g) lexeme _) = "Expected symbol " <> pretty e <> " but got " <> g' <> " in '" <> lexeme <> "'"
+    where g' = case g of (Just c) -> pretty c
+                         Nothing  -> "EOF"
 
 instance Error LexerError
 

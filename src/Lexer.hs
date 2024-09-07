@@ -6,7 +6,8 @@ import           Lexer.Scanner        (Buffer, CurrentLexeme (CurrentLexeme),
                                        LexerMonad, LexerState (LexerState),
                                        RemainingBuffer (RemainingBuffer),
                                        nextToken)
-import           Lexer.Token          (Location (..), Token)
+import           Lexer.Token          (Token)
+import           Location
 
 import           Control.Monad.Except (MonadError (throwError), handleError,
                                        runExceptT)
@@ -20,7 +21,7 @@ fromFile = L.readFile
 
 scanUntilEOF :: Text -> Buffer -> Either LexerError [Token]
 scanUntilEOF bufferName buffer = evalState (runExceptT scanUntilEOF') $ LexerState (RemainingBuffer buffer loc) (CurrentLexeme T.empty loc)
-  where loc = Location {lexemeColumn=1, lexemeLine=1, lexemeBuffer=bufferName}
+  where loc = Location 1 1 (Just bufferName)
         scanUntilEOF' :: LexerMonad [Token]
         scanUntilEOF' = handleError handler $ (:) <$> nextToken <*> scanUntilEOF'
           where handler :: LexerError -> LexerMonad [Token]

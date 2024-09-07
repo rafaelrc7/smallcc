@@ -5,21 +5,18 @@ module Lexer.Token where
 
 import           Pretty    (PrettyPrinter (..))
 
-import           Data.Int  (Int64)
 import           Data.Text (Text)
+import           Location
 
 type Lexeme = Text
-type Position = Int64
 type Identifier = Text
-
-data Location = Location { lexemeLine   :: Position
-                         , lexemeColumn :: Position
-                         , lexemeBuffer :: Text
-                         }
-  deriving Show
 
 data Token = Token TokenType Lexeme Location
   deriving Show
+
+instance Locatable Token where
+  locate :: Token -> Location
+  locate (Token _ _ loc) = loc
 
 data TokenType = Keyword Keyword
                | Identifier Identifier
@@ -129,17 +126,4 @@ instance PrettyPrinter Keyword where
   pretty Int    = "int"
   pretty Void   = "void"
   pretty Return = "return"
-
-instance PrettyPrinter Location where
-  pretty :: Location -> Text
-  pretty Location {lexemeLine=line, lexemeColumn=column, lexemeBuffer=buffer} = buffer <> ":" <> pretty line <> ":" <> pretty column
-
-data ScannedSymbol = EOF
-                   | Symbol Char
-  deriving (Show)
-
-instance PrettyPrinter ScannedSymbol where
-  pretty :: ScannedSymbol -> Text
-  pretty (Symbol c) = pretty c
-  pretty EOF        = "EOF"
 

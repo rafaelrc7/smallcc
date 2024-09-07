@@ -15,6 +15,7 @@ import           Numeric.Natural      (Natural)
 
 import           Lexer.Token          (Token (..), TokenType, tokenType)
 import qualified Lexer.Token          as TK
+import           Location
 import           Parser.Error         (ParserError (..))
 import           Pretty
 
@@ -132,7 +133,8 @@ precedence Multiply                                       = Precedence LeftAssoc
 precedence Divide                                         = Precedence LeftAssociative  50
 precedence Remainder                                      = Precedence LeftAssociative  50
 
-type ParserMonad a = ExceptT ParserError (State [Token]) a
+type ParserState = ([Token], Location)
+type ParserMonad a = ExceptT ParserError (State ParserState) a
 
 class Parser a where
   parse :: ParserMonad a
@@ -145,15 +147,15 @@ catchST handler action = get >>= \st -> handleError (\e -> put st >> handler e) 
 
 expectEOF :: ParserMonad ()
 expectEOF = get >>= \case
-  []    -> return ()
-  (t:_) -> throwError ExpectedEOF { got = t }
+  ([],  _) -> return ()
+  (t:_, _) -> throwError $ UnexpectedToken "EOF" t
 
 expect :: TokenType -> ParserMonad ()
 expect s = get >>= \case
-  [] -> throwError UnexpectedEOF {expected=s'}
-  (t@(Token tt _ _):ts)
-         | tt == s -> put ts
-         | otherwise -> throwError UnexpectedToken {got=t, expected=s'}
+  ([], loc) -> throwError $ UnexpectedEOF s' loc
+  (t@(Token tt _ loc):ts, _)
+         | tt == s -> put (ts, loc)
+         | otherwise -> throwError $ UnexpectedToken s' t
   where s' = T.pack $ show s
 
 expect' :: [TokenType] -> ParserMonad ()
@@ -161,16 +163,13 @@ expect' = foldr ((>>) . expect) (return ())
 
 peek :: ParserMonad Token
 peek = get >>= \case
-  [] -> throwError UnexpectedEOF {expected="<token>"}
-  (t:_) -> return t
+  ([], loc) -> throwError $ UnexpectedEOF "<token>" loc
+  (t:_, _)  -> return t
 
 pop :: ParserMonad Token
 pop = get >>= \case
-  [] -> throwError UnexpectedEOF {expected="<token>"}
-  (t:ts) -> put ts >> return t
-
-push :: Token -> ParserMonad ()
-push t = get >>= put . (t:)
+  ([],   loc)               -> throwError $ UnexpectedEOF "<token>" loc
+  (t@(Token _ _ loc):ts, _) -> put (ts, loc) >> return t
 
 -- <program> ::= <function>
 instance Parser Program where
@@ -206,10 +205,10 @@ instance Parser BlockItem where
 -- <statement> ::= "return" <exp> ";"
 instance Parser Statement where
   parse :: ParserMonad Statement
-  parse = pop >>= \t -> case tokenType t of
-               TK.Semicolon           -> return Null
-               (TK.Keyword TK.Return) -> parse >>= \expr -> expect TK.Semicolon >> return (Return expr)
-               _                      -> push t >> parse >>= \expr -> expect TK.Semicolon >> return (Expression expr)
+  parse = peek >>= \t -> case tokenType t of
+               TK.Semicolon           -> pop >> return Null
+               (TK.Keyword TK.Return) -> pop >> parse >>= \expr -> expect TK.Semicolon >> return (Return expr)
+               _                      -> parse >>= \expr -> expect TK.Semicolon >> return (Expression expr)
 
 -- <declaration> ::= "int" <identifier> ["=" <exp>] ";"
 instance Parser Declaration where
@@ -265,16 +264,16 @@ parseFactorM :: ParserMonad Exp
 parseFactorM = parseFactorM' >>= consumePostfix
   where parseFactorM' :: ParserMonad Exp
         parseFactorM' =
-          pop >>= \t -> case tokenType t of
-               TK.Decrement      -> parseFactorM <&> PreAssignment Decrement
-               TK.Increment      -> parseFactorM <&> PreAssignment Increment
-               TK.Minus          -> parseFactorM <&> Unary Negate
-               TK.Complement     -> parseFactorM <&> Unary Complement
-               TK.Not            -> parseFactorM <&> Unary Not
-               TK.OpenParens     -> parse >>= \expr -> expect TK.CloseParens >> return expr
-               (TK.Constant _)   -> push t >> parse <&> Constant
-               (TK.Identifier _) -> push t >> parse <&> Var
-               _                 -> throwError UnexpectedToken {got=t, expected="<factor>"}
+          peek >>= \t -> case tokenType t of
+               TK.Decrement      -> pop >> parseFactorM <&> PreAssignment Decrement
+               TK.Increment      -> pop >> parseFactorM <&> PreAssignment Increment
+               TK.Minus          -> pop >> parseFactorM <&> Unary Negate
+               TK.Complement     -> pop >> parseFactorM <&> Unary Complement
+               TK.Not            -> pop >> parseFactorM <&> Unary Not
+               TK.OpenParens     -> pop >> parse >>= \expr -> expect TK.CloseParens >> return expr
+               (TK.Constant _)   -> parse <&> Constant
+               (TK.Identifier _) -> parse <&> Var
+               _                 -> pop >> throwError (UnexpectedToken "<factor>" t)
 
         consumePostfix :: Exp -> ParserMonad Exp
         consumePostfix expr = peek >>= tokenType |> \case
@@ -287,26 +286,26 @@ parseFactorM = parseFactorM' >>= consumePostfix
 --           | ">>" | "<<" | "&" | "|" | "^"
 instance Parser BinaryOperator where
   parse :: ParserMonad BinaryOperator
-  parse = pop >>= \t -> case tokenType t of
-      TK.Or             -> return Or
-      TK.And            -> return And
-      TK.BitOr          -> return BitOr
-      TK.BitXOR         -> return BitXOR
-      TK.BitAnd         -> return BitAnd
-      TK.EqualsTo       -> return EqualsTo
-      TK.NotEqualsTo    -> return NotEqualsTo
-      TK.Less           -> return Less
-      TK.LessOrEqual    -> return LessOrEqual
-      TK.Greater        -> return Greater
-      TK.GreaterOrEqual -> return GreaterOrEqual
-      TK.BitShiftLeft   -> return BitShiftLeft
-      TK.BitShiftRight  -> return BitShiftRight
-      TK.Plus           -> return Add
-      TK.Minus          -> return Subtract
-      TK.Asterisk       -> return Multiply
-      TK.ForwardSlash   -> return Divide
-      TK.Percent        -> return Remainder
-      _                 -> push t >> parse <&> BinaryAssignmentOperator
+  parse = peek >>= \t -> case tokenType t of
+      TK.Or             -> pop >> return Or
+      TK.And            -> pop >> return And
+      TK.BitOr          -> pop >> return BitOr
+      TK.BitXOR         -> pop >> return BitXOR
+      TK.BitAnd         -> pop >> return BitAnd
+      TK.EqualsTo       -> pop >> return EqualsTo
+      TK.NotEqualsTo    -> pop >> return NotEqualsTo
+      TK.Less           -> pop >> return Less
+      TK.LessOrEqual    -> pop >> return LessOrEqual
+      TK.Greater        -> pop >> return Greater
+      TK.GreaterOrEqual -> pop >> return GreaterOrEqual
+      TK.BitShiftLeft   -> pop >> return BitShiftLeft
+      TK.BitShiftRight  -> pop >> return BitShiftRight
+      TK.Plus           -> pop >> return Add
+      TK.Minus          -> pop >> return Subtract
+      TK.Asterisk       -> pop >> return Multiply
+      TK.ForwardSlash   -> pop >> return Divide
+      TK.Percent        -> pop >> return Remainder
+      _                 -> parse <&> BinaryAssignmentOperator
 
 instance Parser BinaryAssignmentOperator where
   parse :: ParserMonad BinaryAssignmentOperator
@@ -322,23 +321,23 @@ instance Parser BinaryAssignmentOperator where
             TK.BitXORAssign        -> return BitXORAssign
             TK.BitShiftLeftAssign  -> return BitShiftLeftAssign
             TK.BitShiftRightAssign -> return BitShiftRightAssign
-            _                      -> throwError UnexpectedToken {got=t, expected="<binop>"}
+            _                      -> throwError $ UnexpectedToken "<binop>" t
 
 -- <int> ::= Tokens.Constant
 instance Parser Constant where
   parse :: ParserMonad Constant
   parse = get >>= \case
-    (Token (TK.Constant c) _ _ : ts) -> put ts >> return (CInt c)
-    (t : _)              -> throwError UnexpectedToken { got=t, expected = "<int>" }
-    []                   -> throwError UnexpectedEOF { expected = "<int>" }
+    (Token (TK.Constant c) _ loc : ts, _) -> put (ts, loc) >> return (CInt c)
+    (t : _, _)                            -> throwError $ UnexpectedToken "<int>" t
+    ([], loc)                             -> throwError $ UnexpectedEOF "<int>" loc
 
 -- <identifier> ::= Tokens.Identifier
 instance Parser Identifier where
   parse :: ParserMonad Identifier
   parse = get >>= \case
-    (Token (TK.Identifier n) _ _ : ts) -> put ts >> return n
-    (t : _)                -> throwError UnexpectedToken { got=t, expected = "<identifier>" }
-    []                     -> throwError UnexpectedEOF { expected = "<identifier>" }
+    (Token (TK.Identifier n) _ loc : ts, _) -> put (ts, loc) >> return n
+    (t : _, _)                              -> throwError $ UnexpectedToken "<identifier>" t
+    ([], loc)                               -> throwError $ UnexpectedEOF "<identifier>" loc
 
 instance PrettyPrinter Program where
   pretty :: Program -> Text

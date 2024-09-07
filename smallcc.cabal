@@ -65,6 +65,7 @@ library
     AssemblyGenerator
     Error
     Lexer
+    Location
     MyLib
     Parser
     Pretty
