@@ -88,23 +88,41 @@ scanToken = peekSymbol >>= \case
                , (">", Greater),      (">=", GreaterOrEqual), (">>", BitShiftRight), (">>=", BitShiftRightAssign)]
 
 setLine :: Int64 -> LexerMonad ()
-setLine lin = get >>= \(LexerState (RemainingBuffer b Location {lexemeLine=_, lexemeColumn=c}) l) ->
-  put $ LexerState (RemainingBuffer b Location {lexemeLine=lin, lexemeColumn=c}) l
+setLine lin = get >>= \(LexerState (RemainingBuffer b loc) l) ->
+  put $ LexerState (RemainingBuffer b loc {lexemeLine=lin}) l
+
+setBufferName :: T.Text -> LexerMonad ()
+setBufferName buffName = get >>= \(LexerState (RemainingBuffer b loc) l) ->
+  put $ LexerState (RemainingBuffer b loc {lexemeBuffer=buffName}) l
 
 scanLineMarker :: LexerMonad ()
 scanLineMarker = do (LexerState (RemainingBuffer _ Location {lexemeColumn=c}) _) <- get
-                    _ <- consumeSymbol -- #
+                    expect '#'
                     when (c /= 1) $ void scanUnknownToken
-                    _ <- consumeSymbol -- <space>
+                    expect ' '
+
                     modify resetLexeme
-                    scanConstant >>=
-                      \case Token (Constant l) _ _ -> consumeUntilEOL >> setLine (fromIntegral l)
-                            _ -> consumeUntilEOL
-  where consumeUntilEOL :: LexerMonad ()
-        consumeUntilEOL = consumeSymbol >>= \case
-                            (Symbol '\n') -> return ()
-                            EOF           -> return ()
-                            _             -> consumeUntilEOL
+                    line <- scanConstant >>= \case
+                      Token (Constant l) _ _ -> return l
+                      _                      -> err MalformedToken
+
+                    expect ' '
+                    modify resetLexeme
+                    buff <- scanString >>= \case
+                      Token (String s) _ _ -> return s
+                      _                    -> err MalformedToken
+
+                    setLine (fromIntegral line)
+                    setBufferName buff
+
+                    consumeUntilEOL
+
+
+consumeUntilEOL :: LexerMonad ()
+consumeUntilEOL = consumeSymbol >>= \case
+                    (Symbol '\n') -> return ()
+                    EOF           -> return ()
+                    _             -> consumeUntilEOL
 
 consumeSymbol :: LexerMonad ScannedSymbol
 consumeSymbol = get >>= \(LexerState (RemainingBuffer b bloc) (CurrentLexeme l lloc)) ->
@@ -198,17 +216,6 @@ scanUnknownToken = peekSymbol >>= \case
   EOF -> err UnknownToken
   Symbol s | isBoundary s -> err UnknownToken
            | otherwise    -> consumeSymbol >> scanUnknownToken
-
-isAtEnd :: LexerMonad Bool
-isAtEnd = get >>= \(LexerState (RemainingBuffer b _) _) ->
-            return $ L.null b
-
-lookAhead :: Int64 -> LexerMonad (Maybe Char)
-lookAhead i = get >>= \(LexerState (RemainingBuffer b _) _) ->
-                if i >= L.length b then
-                  return Nothing
-                else
-                  return . Just $ L.index b i
 
 isAlpha_ :: Char -> Bool
 isAlpha_ '_' = True

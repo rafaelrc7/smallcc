@@ -5,6 +5,7 @@ import qualified Settings          as S
 import           Control.Monad     (unless, when)
 import           Data.Char         (isSpace)
 import           Data.Functor      ((<&>))
+import qualified Data.Text         as T
 import qualified Data.Text.IO      as TIO
 import           System.Directory  (doesFileExist, removeFile)
 import           System.Exit       (ExitCode (..), die, exitFailure,
@@ -49,7 +50,7 @@ main = do
 
   -- C Compiler
   -- Lexer
-  lexerResult <- fromFile preProcessedFile <&> scanUntilEOF
+  lexerResult <- fromFile preProcessedFile <&> scanUntilEOF (T.pack preProcessedFile)
   cleanup preProcessedFile
   tokens <- case lexerResult of
               Left err -> do print $ pretty err

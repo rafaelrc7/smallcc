@@ -14,6 +14,7 @@ type Identifier = Text
 
 data Location = Location { lexemeLine   :: Position
                          , lexemeColumn :: Position
+                         , lexemeBuffer :: Text
                          }
   deriving Show
 
@@ -131,7 +132,7 @@ instance PrettyPrinter Keyword where
 
 instance PrettyPrinter Location where
   pretty :: Location -> Text
-  pretty Location {lexemeLine=line, lexemeColumn=column} = "line: " <> pretty line <> ", column: " <> pretty column
+  pretty Location {lexemeLine=line, lexemeColumn=column, lexemeBuffer=buffer} = buffer <> ":" <> pretty line <> ":" <> pretty column
 
 data ScannedSymbol = EOF
                    | Symbol Char
