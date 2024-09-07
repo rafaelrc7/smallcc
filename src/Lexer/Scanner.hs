@@ -97,21 +97,21 @@ scanLineMarker = do (LexerState (RemainingBuffer _ Location {lexemeColumn=c}) _)
                             _         -> consumeUntilEOL
 
 consumeSymbol :: LexerMonad (Maybe Char)
-consumeSymbol = do (LexerState (RemainingBuffer b bloc) (CurrentLexeme l lloc)) <- get
-                   case L.uncons b of
-                     Nothing -> return Nothing
-                     Just (s@'\n', b') ->
-                       do put (LexerState (RemainingBuffer b' (nextLine bloc)) (CurrentLexeme (l `T.snoc` s) lloc))
-                          return $ Just s
-                     Just (s, b') ->
-                       do put (LexerState (RemainingBuffer b' (nextCol bloc))  (CurrentLexeme (l `T.snoc` s) lloc))
-                          return $ Just s
+consumeSymbol = get >>= \(LexerState (RemainingBuffer b bloc) (CurrentLexeme l lloc)) ->
+                  case L.uncons b of
+                    Nothing -> return Nothing
+                    Just (s@'\n', b') ->
+                      do put (LexerState (RemainingBuffer b' (nextLine bloc)) (CurrentLexeme (l `T.snoc` s) lloc))
+                         return $ Just s
+                    Just (s, b') ->
+                      do put (LexerState (RemainingBuffer b' (nextCol bloc))  (CurrentLexeme (l `T.snoc` s) lloc))
+                         return $ Just s
 
 peekSymbol :: LexerMonad (Maybe Char)
-peekSymbol = do (LexerState (RemainingBuffer b _) _) <- get
-                case L.uncons b of
-                  Just (symbol, _) -> return $ Just symbol
-                  Nothing          -> return Nothing
+peekSymbol = get >>= \(LexerState (RemainingBuffer b _) _) ->
+               case L.uncons b of
+                 Just (symbol, _) -> return $ Just symbol
+                 Nothing          -> return Nothing
 
 scanConstant :: LexerMonad Token
 scanConstant = peekSymbol >>= \case
@@ -120,10 +120,10 @@ scanConstant = peekSymbol >>= \case
          | isDigit    s -> consumeSymbol >> scanConstant
          | otherwise    -> scanUnknownToken
   where token :: LexerMonad Token
-        token = do (LexerState (RemainingBuffer _ _) (CurrentLexeme l _)) <- get
-                   case T.decimal l of
-                      Right (value, _) -> ret $ Constant value
-                      Left  e          -> err $ MalformedConstant e
+        token = get >>= \(LexerState (RemainingBuffer _ _) (CurrentLexeme l _)) ->
+                  case T.decimal l of
+                     Right (value, _) -> ret $ Constant value
+                     Left  e          -> err $ MalformedConstant e
 
 scanIdentifier :: LexerMonad Token
 scanIdentifier = peekSymbol >>= \case
@@ -131,34 +131,33 @@ scanIdentifier = peekSymbol >>= \case
   Just s | isAlphaNum_ s -> consumeSymbol >> scanIdentifier
          | otherwise -> token
   where token :: LexerMonad Token
-        token = do (LexerState _ (CurrentLexeme l _)) <- get
-                   case scanKeyword l of
-                     Just kw -> ret $ Keyword kw
-                     Nothing -> ret $ Identifier l
+        token = get >>= \(LexerState _ (CurrentLexeme l _)) ->
+                  case scanKeyword l of
+                    Just kw -> ret $ Keyword kw
+                    Nothing -> ret $ Identifier l
 
 scanCompoundToken :: [(String, TokenType)] -> LexerMonad Token
 scanCompoundToken [] = err MalformedToken
-scanCompoundToken tokens =
-  do peekSymbol >>= \case
-       Nothing -> err MalformedToken
-       Just s  -> catchST token $ consumeSymbol >> scanCompoundToken tokens'
-         where scanCompoundToken' :: [(String, TokenType)] -> (Maybe TokenType, [(String, TokenType)])
-               scanCompoundToken' [] = (Nothing, [])
-               scanCompoundToken' (("", _) : ts) = scanCompoundToken' ts
-               scanCompoundToken' ((c : "", t) : ts)
-                 | c == s = (Just t, ts')
-                 | otherwise = (t', ts')
-                 where (t', ts') = scanCompoundToken' ts
-               scanCompoundToken' ((c : cs, t) : ts)
-                 | c == s = (t', (cs, t) : ts')
-                 | otherwise = (t', ts')
-                 where (t', ts') = scanCompoundToken' ts
-               (token', tokens') = scanCompoundToken' tokens
+scanCompoundToken tokens = peekSymbol >>= \case
+   Nothing -> err MalformedToken
+   Just s  -> catchST token $ consumeSymbol >> scanCompoundToken tokens'
+     where scanCompoundToken' :: [(String, TokenType)] -> (Maybe TokenType, [(String, TokenType)])
+           scanCompoundToken' [] = (Nothing, [])
+           scanCompoundToken' (("", _) : ts) = scanCompoundToken' ts
+           scanCompoundToken' ((c : "", t) : ts)
+             | c == s = (Just t, ts')
+             | otherwise = (t', ts')
+             where (t', ts') = scanCompoundToken' ts
+           scanCompoundToken' ((c : cs, t) : ts)
+             | c == s = (t', (cs, t) : ts')
+             | otherwise = (t', ts')
+             where (t', ts') = scanCompoundToken' ts
+           (token', tokens') = scanCompoundToken' tokens
 
-               token :: LexerError -> LexerMonad Token
-               token e = case token' of
-                         Nothing -> throwError e
-                         Just t  -> consumeSymbol >> ret t
+           token :: LexerError -> LexerMonad Token
+           token e = case token' of
+                     Nothing -> throwError e
+                     Just t  -> consumeSymbol >> ret t
 
 scanUnknownToken :: LexerMonad Token
 scanUnknownToken = peekSymbol >>= \case
@@ -167,15 +166,15 @@ scanUnknownToken = peekSymbol >>= \case
          | otherwise    -> consumeSymbol >> scanUnknownToken
 
 isAtEnd :: LexerMonad Bool
-isAtEnd = do (LexerState (RemainingBuffer b _) _) <- get
-             return $ L.null b
+isAtEnd = get >>= \(LexerState (RemainingBuffer b _) _) ->
+            return $ L.null b
 
 lookAhead :: Int64 -> LexerMonad (Maybe Char)
-lookAhead i = do (LexerState (RemainingBuffer b _) _) <- get
-                 if i >= L.length b then
-                   return Nothing
-                 else
-                   return . Just $ L.index b i
+lookAhead i = get >>= \(LexerState (RemainingBuffer b _) _) ->
+                if i >= L.length b then
+                  return Nothing
+                else
+                  return . Just $ L.index b i
 
 isAlpha_ :: Char -> Bool
 isAlpha_ '_' = True
