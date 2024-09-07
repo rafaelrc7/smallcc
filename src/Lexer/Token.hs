@@ -23,6 +23,7 @@ data Token = Token TokenType Lexeme Location
 data TokenType = Keyword Keyword
                | Identifier Identifier
                | Constant Int
+               | String Text
                | OpenParens
                | CloseParens
                | OpenBrace
@@ -82,6 +83,7 @@ instance PrettyPrinter TokenType where
   pretty (Keyword    i)      = pretty i
   pretty (Identifier i)      = pretty i
   pretty (Constant   i)      = pretty i
+  pretty (String     s)      = "\"" <> s <> "\""
   pretty OpenParens          = "("
   pretty CloseParens         = ")"
   pretty OpenBrace           = "{"
@@ -130,4 +132,13 @@ instance PrettyPrinter Keyword where
 instance PrettyPrinter Location where
   pretty :: Location -> Text
   pretty Location {lexemeLine=line, lexemeColumn=column} = "line: " <> pretty line <> ", column: " <> pretty column
+
+data ScannedSymbol = EOF
+                   | Symbol Char
+  deriving (Show)
+
+instance PrettyPrinter ScannedSymbol where
+  pretty :: ScannedSymbol -> Text
+  pretty (Symbol c) = pretty c
+  pretty EOF        = "EOF"
 

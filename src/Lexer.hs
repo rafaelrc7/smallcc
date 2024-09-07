@@ -1,6 +1,7 @@
 module Lexer where
 
-import           Lexer.Error          (LexerError (..), LexerErrorType (EOF))
+import           Lexer.Error          (LexerError (..),
+                                       LexerErrorType (ReachedEOF))
 import           Lexer.Scanner        (Buffer, CurrentLexeme (CurrentLexeme),
                                        LexerMonad, LexerState (LexerState),
                                        RemainingBuffer (RemainingBuffer),
@@ -23,5 +24,5 @@ scanUntilEOF buffer = evalState (runExceptT scanUntilEOF') $ LexerState (Remaini
         scanUntilEOF' :: LexerMonad [Token]
         scanUntilEOF' = handleError handler $ (:) <$> nextToken <*> scanUntilEOF'
           where handler :: LexerError -> LexerMonad [Token]
-                handler (LexerError EOF _ _) = return []
-                handler e                    = throwError e
+                handler (LexerError ReachedEOF _ _) = return []
+                handler e                           = throwError e

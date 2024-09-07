@@ -4,7 +4,8 @@
 module Lexer.Scanner where
 
 import           Lexer.Error          (LexerError (..), LexerErrorType (..))
-import           Lexer.Token          (Lexeme, Location (..), Token (..),
+import           Lexer.Token          (Lexeme, Location (..),
+                                       ScannedSymbol (..), Token (..),
                                        TokenType (..), scanKeyword)
 
 import           Control.Monad        (void, when)
@@ -12,6 +13,7 @@ import           Control.Monad.Except (ExceptT, MonadError (throwError),
                                        handleError)
 import           Control.Monad.State  (MonadState (get, put), State, modify)
 import           Data.Char            (isAlpha, isDigit, isSpace)
+import           Data.Functor         ((<&>))
 import           Data.Int             (Int64)
 import qualified Data.Text            as T
 import qualified Data.Text.Lazy       as L
@@ -42,6 +44,12 @@ ret tok = get >>= \(LexerState _ (CurrentLexeme l lloc)) -> return $ Token tok l
 err :: LexerErrorType -> LexerMonad a
 err e = get >>= \(LexerState _ (CurrentLexeme l lloc)) -> throwError $ LexerError e l lloc
 
+expect :: Char -> LexerMonad ()
+expect s = consumeSymbol >>= \case
+  EOF -> err UnexpectedSymbol {got=EOF, expected=s}
+  Symbol s' | s' == s -> return ()
+            | otherwise -> err UnexpectedSymbol {got=Symbol s', expected=s}
+
 nextCol :: Location -> Location
 nextCol loc@Location { lexemeColumn = c } = loc { lexemeColumn = succ c }
 
@@ -53,29 +61,31 @@ nextToken = modify resetLexeme >> scanToken
 
 scanToken :: LexerMonad Token
 scanToken = peekSymbol >>= \case
-  Nothing  -> err EOF
-  Just '#' -> scanLineMarker >> nextToken
-  Just '(' -> consumeSymbol >> ret OpenParens
-  Just ')' -> consumeSymbol >> ret CloseParens
-  Just '{' -> consumeSymbol >> ret OpenBrace
-  Just '}' -> consumeSymbol >> ret CloseBrace
-  Just ';' -> consumeSymbol >> ret Semicolon
-  Just '~' -> consumeSymbol >> ret Complement
-  Just s | isSpace  s -> consumeSymbol >> nextToken
-         | isDigit  s -> consumeSymbol >> scanConstant
-         | isAlpha_ s -> consumeSymbol >> scanIdentifier
-         | otherwise  -> scanCompoundToken [ ("=", Equals),       ("==", EqualsTo)
-                                           , ("!", Not),          ("!=", NotEqualsTo)
-                                           , ("+", Plus),         ("+=", IncAssign),      ("++", Increment)
-                                           , ("-", Minus),        ("-=", DecAssign),      ("--", Decrement)
-                                           , ("*", Asterisk),     ("*=", MulAssign)
-                                           , ("/", ForwardSlash), ("/=", DivAssign)
-                                           , ("%", Percent),      ("%=", ModAssign)
-                                           , ("^", BitXOR),       ("^=", BitXORAssign)
-                                           , ("&", BitAnd),       ("&=", BitAndAssign),   ("&&", And)
-                                           , ("|", BitOr),        ("|=", BitOrAssign),    ("||", Or)
-                                           , ("<", Less),         ("<=", LessOrEqual),    ("<<", BitShiftLeft),  ("<<=", BitShiftLeftAssign)
-                                           , (">", Greater),      (">=", GreaterOrEqual), (">>", BitShiftRight), (">>=", BitShiftRightAssign)]
+  EOF        -> err ReachedEOF
+  Symbol '"' -> scanString
+  Symbol '#' -> scanLineMarker >> nextToken
+  Symbol '(' -> consumeSymbol  >> ret OpenParens
+  Symbol ')' -> consumeSymbol  >> ret CloseParens
+  Symbol '{' -> consumeSymbol  >> ret OpenBrace
+  Symbol '}' -> consumeSymbol  >> ret CloseBrace
+  Symbol ';' -> consumeSymbol  >> ret Semicolon
+  Symbol '~' -> consumeSymbol  >> ret Complement
+  Symbol s | isSpace  s -> consumeSymbol >> nextToken
+           | isDigit  s -> consumeSymbol >> scanConstant
+           | isAlpha_ s -> consumeSymbol >> scanIdentifier
+           | otherwise  -> scanCompoundToken
+               [ ("=", Equals),       ("==", EqualsTo)
+               , ("!", Not),          ("!=", NotEqualsTo)
+               , ("+", Plus),         ("+=", IncAssign),      ("++", Increment)
+               , ("-", Minus),        ("-=", DecAssign),      ("--", Decrement)
+               , ("*", Asterisk),     ("*=", MulAssign)
+               , ("/", ForwardSlash), ("/=", DivAssign)
+               , ("%", Percent),      ("%=", ModAssign)
+               , ("^", BitXOR),       ("^=", BitXORAssign)
+               , ("&", BitAnd),       ("&=", BitAndAssign),   ("&&", And)
+               , ("|", BitOr),        ("|=", BitOrAssign),    ("||", Or)
+               , ("<", Less),         ("<=", LessOrEqual),    ("<<", BitShiftLeft),  ("<<=", BitShiftLeftAssign)
+               , (">", Greater),      (">=", GreaterOrEqual), (">>", BitShiftRight), (">>=", BitShiftRightAssign)]
 
 setLine :: Int64 -> LexerMonad ()
 setLine lin = get >>= \(LexerState (RemainingBuffer b Location {lexemeLine=_, lexemeColumn=c}) l) ->
@@ -92,44 +102,68 @@ scanLineMarker = do (LexerState (RemainingBuffer _ Location {lexemeColumn=c}) _)
                             _ -> consumeUntilEOL
   where consumeUntilEOL :: LexerMonad ()
         consumeUntilEOL = consumeSymbol >>= \case
-                            Just '\n' -> return ()
-                            Nothing   -> return ()
-                            _         -> consumeUntilEOL
+                            (Symbol '\n') -> return ()
+                            EOF           -> return ()
+                            _             -> consumeUntilEOL
 
-consumeSymbol :: LexerMonad (Maybe Char)
+consumeSymbol :: LexerMonad ScannedSymbol
 consumeSymbol = get >>= \(LexerState (RemainingBuffer b bloc) (CurrentLexeme l lloc)) ->
                   case L.uncons b of
-                    Nothing -> return Nothing
+                    Nothing -> return EOF
                     Just (s@'\n', b') ->
                       do put (LexerState (RemainingBuffer b' (nextLine bloc)) (CurrentLexeme (l `T.snoc` s) lloc))
-                         return $ Just s
+                         return $ Symbol s
                     Just (s, b') ->
                       do put (LexerState (RemainingBuffer b' (nextCol bloc))  (CurrentLexeme (l `T.snoc` s) lloc))
-                         return $ Just s
+                         return $ Symbol s
 
-peekSymbol :: LexerMonad (Maybe Char)
+peekSymbol :: LexerMonad ScannedSymbol
 peekSymbol = get >>= \(LexerState (RemainingBuffer b _) _) ->
                case L.uncons b of
-                 Just (symbol, _) -> return $ Just symbol
-                 Nothing          -> return Nothing
+                 Just (symbol, _) -> return $ Symbol symbol
+                 Nothing          -> return EOF
 
 scanConstant :: LexerMonad Token
 scanConstant = peekSymbol >>= \case
-  Nothing -> token
-  Just s | isBoundary s -> token
-         | isDigit    s -> consumeSymbol >> scanConstant
-         | otherwise    -> scanUnknownToken
+  EOF -> token
+  Symbol s | isBoundary s -> token
+           | isDigit    s -> consumeSymbol >> scanConstant
+           | otherwise    -> scanUnknownToken
   where token :: LexerMonad Token
         token = get >>= \(LexerState (RemainingBuffer _ _) (CurrentLexeme l _)) ->
                   case T.decimal l of
                      Right (value, _) -> ret $ Constant value
                      Left  e          -> err $ MalformedConstant e
 
+scanString :: LexerMonad Token
+scanString = expect '"' >> scanString' >>= ret . String
+  where scanString' :: LexerMonad T.Text
+        scanString' = peekSymbol >>=
+          \case EOF         -> err MalformedToken
+                Symbol '\\' -> T.cons <$> scanEscaped <*> scanString'
+                Symbol '"'  -> consumeSymbol >> return ""
+                Symbol c    -> consumeSymbol >> scanString' <&> T.cons c
+
+scanEscaped :: LexerMonad Char
+scanEscaped = expect '\\' >> consumeSymbol >>=
+  \case Symbol 'a'  -> return '\a'
+        Symbol 'b'  -> return '\b'
+        Symbol 'f'  -> return '\f'
+        Symbol 'n'  -> return '\n'
+        Symbol 'r'  -> return '\r'
+        Symbol 't'  -> return '\t'
+        Symbol 'v'  -> return '\v'
+        Symbol '\\' -> return '\\'
+        Symbol '\'' -> return '\''
+        Symbol '\"' -> return '\"'
+        Symbol '?'  -> return '?'
+        _           -> err MalformedToken
+
 scanIdentifier :: LexerMonad Token
 scanIdentifier = peekSymbol >>= \case
-  Nothing -> token
-  Just s | isAlphaNum_ s -> consumeSymbol >> scanIdentifier
-         | otherwise -> token
+  EOF -> token
+  Symbol s | isAlphaNum_ s -> consumeSymbol >> scanIdentifier
+           | otherwise -> token
   where token :: LexerMonad Token
         token = get >>= \(LexerState _ (CurrentLexeme l _)) ->
                   case scanKeyword l of
@@ -139,8 +173,8 @@ scanIdentifier = peekSymbol >>= \case
 scanCompoundToken :: [(String, TokenType)] -> LexerMonad Token
 scanCompoundToken [] = err MalformedToken
 scanCompoundToken tokens = peekSymbol >>= \case
-   Nothing -> err MalformedToken
-   Just s  -> catchST token $ consumeSymbol >> scanCompoundToken tokens'
+   EOF      -> err MalformedToken
+   Symbol s -> catchST token $ consumeSymbol >> scanCompoundToken tokens'
      where scanCompoundToken' :: [(String, TokenType)] -> (Maybe TokenType, [(String, TokenType)])
            scanCompoundToken' [] = (Nothing, [])
            scanCompoundToken' (("", _) : ts) = scanCompoundToken' ts
@@ -161,9 +195,9 @@ scanCompoundToken tokens = peekSymbol >>= \case
 
 scanUnknownToken :: LexerMonad Token
 scanUnknownToken = peekSymbol >>= \case
-  Nothing -> err UnknownToken
-  Just s | isBoundary s -> err UnknownToken
-         | otherwise    -> consumeSymbol >> scanUnknownToken
+  EOF -> err UnknownToken
+  Symbol s | isBoundary s -> err UnknownToken
+           | otherwise    -> consumeSymbol >> scanUnknownToken
 
 isAtEnd :: LexerMonad Bool
 isAtEnd = get >>= \(LexerState (RemainingBuffer b _) _) ->

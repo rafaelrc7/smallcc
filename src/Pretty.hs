@@ -22,6 +22,10 @@ instance PrettyPrinter Int64 where
   pretty :: Int64 -> Text
   pretty = pack . show
 
+instance PrettyPrinter Char where
+  pretty :: Char -> Text
+  pretty = pack . show
+
 identLines :: Text -> Text
 identLines = T.unlines . map (T.cons '\t') . T.lines
 
