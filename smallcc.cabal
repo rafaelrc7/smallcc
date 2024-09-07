@@ -66,7 +66,7 @@ library
     Lexer
     MyLib
     Parser
-    Parser.PrettyPrint
+    Pretty
     SemanticAnalyzer
     Tacky
 
@@ -74,6 +74,8 @@ library
   other-modules:
     AssemblyEmitter.AST
     AssemblyGenerator.AST
+    Lexer.Error
+    Lexer.Scanner
     Lexer.Token
     Parser.AST
     Parser.Error

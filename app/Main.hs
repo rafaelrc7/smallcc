@@ -1,23 +1,23 @@
 module Main where
 
-import qualified Settings           as S
+import qualified Settings          as S
 
-import           Control.Monad      (unless, when)
-import           Data.Char          (isSpace)
-import           Data.Functor       ((<&>))
-import qualified Data.Text.IO       as TIO
-import           System.Directory   (doesFileExist, removeFile)
-import           System.Exit        (ExitCode (..), die, exitFailure,
-                                     exitSuccess)
-import           System.FilePath    (dropExtension, replaceExtension,
-                                     takeExtension)
-import           System.Process     (proc, readCreateProcessWithExitCode, shell)
+import           Control.Monad     (unless, when)
+import           Data.Char         (isSpace)
+import           Data.Functor      ((<&>))
+import qualified Data.Text.IO      as TIO
+import           System.Directory  (doesFileExist, removeFile)
+import           System.Exit       (ExitCode (..), die, exitFailure,
+                                    exitSuccess)
+import           System.FilePath   (dropExtension, replaceExtension,
+                                    takeExtension)
+import           System.Process    (proc, readCreateProcessWithExitCode, shell)
 
 import           AssemblyEmitter
 import           AssemblyGenerator
 import           Lexer
 import           Parser
-import           Parser.PrettyPrint
+import           Pretty
 import           SemanticAnalyzer
 import           Tacky
 
@@ -52,7 +52,7 @@ main = do
   lexerResult <- fromFile preProcessedFile <&> scanUntilEOF
   cleanup preProcessedFile
   tokens <- case lexerResult of
-              Left err -> do print err
+              Left err -> do print $ pretty err
                              exitFailure
               Right tokens -> do when (targetStage == S.CompilerMode S.LexerMode) $
                                    do print tokens
@@ -61,7 +61,7 @@ main = do
 
   -- Parser
   ast <- case parseProgram tokens of
-              Left err -> do print err
+              Left err -> do print $ pretty err
                              exitFailure
               Right ast -> do when (targetStage == S.CompilerMode S.ParserMode) $
                                 do TIO.putStrLn $ pretty ast
