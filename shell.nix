@@ -9,7 +9,7 @@ haskell.shellFor {
     [ ghc cabal-install ] ++ lib.optional devTools [
       hlint
       ormolu
-      (ghc.withPackages (p: [ p.haskell-language-server ]))
+      (ghc.withPackages (p: [ p.haskell-language-server p.haskell-dap p.haskell-debug-adapter p.ghci-dap ]))
       gcc
     ];
 }

@@ -1,0 +1,6 @@
+packages: ./*.cabal
+
+package smallcc
+  debug-info: True
+  optimization: False
+
