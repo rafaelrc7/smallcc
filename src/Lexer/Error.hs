@@ -22,7 +22,8 @@ data LexerErrorType = ReachedEOF
   deriving (Show)
 
 instance Locatable LexerError where
-  locate (LexerError _ _ loc) = loc
+  locate :: LexerError -> Maybe Location
+  locate (LexerError _ _ loc) = Just loc
 
 instance PrettyPrinter LexerError where
   pretty :: LexerError -> Text

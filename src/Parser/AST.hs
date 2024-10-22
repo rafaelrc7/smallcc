@@ -15,9 +15,8 @@ import           Numeric.Natural      (Natural)
 
 import           Lexer.Token          (Token (..), TokenType, tokenType)
 import qualified Lexer.Token          as TK
-import           Location
 import           Parser.Error         (ParserError (..))
-import           Pretty
+import           Pretty               (PrettyPrinter (..), identLines)
 
 newtype Program = Program FunctionDefinition
   deriving (Show)
@@ -133,7 +132,7 @@ precedence Multiply                                       = Precedence LeftAssoc
 precedence Divide                                         = Precedence LeftAssociative  50
 precedence Remainder                                      = Precedence LeftAssociative  50
 
-type ParserState = ([Token], Location)
+type ParserState = [Token]
 type ParserMonad a = ExceptT ParserError (State ParserState) a
 
 class Parser a where
@@ -147,14 +146,14 @@ catchST handler action = get >>= \st -> handleError (\e -> put st >> handler e) 
 
 expectEOF :: ParserMonad ()
 expectEOF = get >>= \case
-  ([],  _) -> return ()
-  (t:_, _) -> throwError $ UnexpectedToken "EOF" t
+  [] -> return ()
+  (t:_) -> throwError $ UnexpectedToken "EOF" t
 
 expect :: TokenType -> ParserMonad ()
 expect s = get >>= \case
-  ([], loc) -> throwError $ UnexpectedEOF s' loc
-  (t@(Token tt _ loc):ts, _)
-         | tt == s -> put (ts, loc)
+  [] -> throwError $ UnexpectedEOF s'
+  (t@(Token tt _ _):ts)
+         | tt == s -> put ts
          | otherwise -> throwError $ UnexpectedToken s' t
   where s' = T.pack $ show s
 
@@ -163,13 +162,13 @@ expect' = foldr ((>>) . expect) (return ())
 
 peek :: ParserMonad Token
 peek = get >>= \case
-  ([], loc) -> throwError $ UnexpectedEOF "<token>" loc
-  (t:_, _)  -> return t
+  []    -> throwError $ UnexpectedEOF "<token>"
+  (t:_) -> return t
 
 pop :: ParserMonad Token
 pop = get >>= \case
-  ([],   loc)               -> throwError $ UnexpectedEOF "<token>" loc
-  (t@(Token _ _ loc):ts, _) -> put (ts, loc) >> return t
+  []     -> throwError $ UnexpectedEOF "<token>"
+  (t:ts) -> put ts >> return t
 
 -- <program> ::= <function>
 instance Parser Program where
@@ -327,17 +326,17 @@ instance Parser BinaryAssignmentOperator where
 instance Parser Constant where
   parse :: ParserMonad Constant
   parse = get >>= \case
-    (Token (TK.Constant c) _ loc : ts, _) -> put (ts, loc) >> return (CInt c)
-    (t : _, _)                            -> throwError $ UnexpectedToken "<int>" t
-    ([], loc)                             -> throwError $ UnexpectedEOF "<int>" loc
+    (Token (TK.Constant c) _ _ : ts) -> put ts >> return (CInt c)
+    (t:_)                              -> throwError $ UnexpectedToken "<int>" t
+    []                                 -> throwError $ UnexpectedEOF "<int>"
 
 -- <identifier> ::= Tokens.Identifier
 instance Parser Identifier where
   parse :: ParserMonad Identifier
   parse = get >>= \case
-    (Token (TK.Identifier n) _ loc : ts, _) -> put (ts, loc) >> return n
-    (t : _, _)                              -> throwError $ UnexpectedToken "<identifier>" t
-    ([], loc)                               -> throwError $ UnexpectedEOF "<identifier>" loc
+    (Token (TK.Identifier n) _ _ : ts) -> put ts >> return n
+    (t : _)                            -> throwError $ UnexpectedToken "<identifier>" t
+    []                                 -> throwError $ UnexpectedEOF "<identifier>"
 
 instance PrettyPrinter Program where
   pretty :: Program -> Text

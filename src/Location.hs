@@ -16,16 +16,7 @@ data Location = Location Line Column (Maybe Text)
   deriving Show
 
 class Locatable a where
-  locate :: a -> Location
-
-  getLine :: a -> Line
-  getLine a = let (Location line _ _) = locate a in line
-
-  getColumn :: a -> Column
-  getColumn a = let (Location _ column _) = locate a in column
-
-  getBufferName :: a -> Maybe Text
-  getBufferName a = let (Location _ _ bufferName) = locate a in bufferName
+  locate :: a -> Maybe Location
 
 instance PrettyPrinter Location where
   pretty :: Location -> Text

@@ -10,5 +10,6 @@ import           System.IO    (stderr)
 
 class (PrettyPrinter a, Locatable a) => Error a where
   putError :: a -> IO ()
-  putError err = hPutStrLn stderr $ pretty (locate err) <> ": Error: " <> pretty err
+  putError err = hPutStrLn stderr $ loc <> ": Error: " <> pretty err
+    where loc = maybe "" pretty (locate err)
 

@@ -15,8 +15,8 @@ data Token = Token TokenType Lexeme Location
   deriving Show
 
 instance Locatable Token where
-  locate :: Token -> Location
-  locate (Token _ _ loc) = loc
+  locate :: Token -> Maybe Location
+  locate (Token _ _ loc) = Just loc
 
 data TokenType = Keyword Keyword
                | Identifier Identifier
