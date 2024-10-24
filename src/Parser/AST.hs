@@ -8,6 +8,7 @@ module Parser.AST where
 import           Data.Text            (Text)
 import qualified Data.Text            as T
 
+import Control.Arrow ((>>>))
 import           Control.Monad.Except (ExceptT, MonadError (..), handleError)
 import           Control.Monad.State  (MonadState (get, put), State)
 import           Data.Functor         ((<&>))
@@ -138,9 +139,6 @@ type ParserMonad a = ExceptT ParserError (State ParserState) a
 class Parser a where
   parse :: ParserMonad a
 
-(|>) :: (a -> b) -> (b -> c) -> a -> c
-(|>) = flip (.)
-
 catchST :: (ParserError -> ParserMonad a) -> ParserMonad a -> ParserMonad a
 catchST handler action = get >>= \st -> handleError (\e -> put st >> handler e) action
 
@@ -190,9 +188,9 @@ instance Parser FunctionDefinition where
 
 -- {<block_item>} ::= <block_item>*
 parseBlockItensM :: ParserMonad [BlockItem]
-parseBlockItensM = peek >>= tokenType |> \case
+parseBlockItensM = peek >>= (tokenType >>> \case
                        TK.CloseBrace -> return []
-                       _             -> (:) <$> parse <*> parseBlockItensM
+                       _             -> (:) <$> parse <*> parseBlockItensM)
 
 -- <block_item> ::= <statement> | <declaration>
 instance Parser BlockItem where
@@ -214,12 +212,12 @@ instance Parser Declaration where
   parse :: ParserMonad Declaration
   parse = do expect (TK.Keyword TK.Int)
              name <- parse
-             peek >>= tokenType |> \case
+             peek >>= (tokenType >>> \case
                  TK.Semicolon -> pop >> return (Declaration name Nothing)
                  _            -> do expect TK.Equals
                                     expr <- parse
                                     expect TK.Semicolon
-                                    return (Declaration name (Just expr))
+                                    return (Declaration name (Just expr)))
 
 -- <exp> ::= <factor> | <exp> <binop> <exp>
 instance Parser Exp where
@@ -275,10 +273,10 @@ parseFactorM = parseFactorM' >>= consumePostfix
                _                 -> pop >> throwError (UnexpectedToken "<factor>" t)
 
         consumePostfix :: Exp -> ParserMonad Exp
-        consumePostfix expr = peek >>= tokenType |> \case
+        consumePostfix expr = peek >>= (tokenType >>> \case
                                   TK.Decrement -> pop >> consumePostfix (PostAssignment Decrement expr)
                                   TK.Increment -> pop >> consumePostfix (PostAssignment Increment expr)
-                                  _            -> return expr
+                                  _            -> return expr)
 
 -- <binop> ::= "-" | "+" | "*" | "/" | "%" | "&&" | "||"
 --           | "==" | "!=" | "<" | "<=" | ">" | ">=" | "="
