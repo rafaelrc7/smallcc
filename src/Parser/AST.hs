@@ -8,7 +8,7 @@ module Parser.AST where
 import           Data.Text            (Text)
 import qualified Data.Text            as T
 
-import Control.Arrow ((>>>))
+import           Control.Arrow        ((>>>))
 import           Control.Monad.Except (ExceptT, MonadError (..), handleError)
 import           Control.Monad.State  (MonadState (get, put), State)
 import           Data.Functor         ((<&>))
@@ -180,17 +180,17 @@ instance Parser FunctionDefinition where
   parse = do expect (TK.Keyword TK.Int)
              name <- parse
              expect' [ TK.OpenParens, TK.Keyword TK.Void, TK.CloseParens, TK.OpenBrace ]
-             bis <- parseBlockItensM
+             bis <- parseBlockItens
              expect TK.CloseBrace
              return Function { funcName = name
                              , funcBody = bis
                              }
 
 -- {<block_item>} ::= <block_item>*
-parseBlockItensM :: ParserMonad [BlockItem]
-parseBlockItensM = peek >>= (tokenType >>> \case
+parseBlockItens :: ParserMonad [BlockItem]
+parseBlockItens = peek >>= (tokenType >>> \case
                        TK.CloseBrace -> return []
-                       _             -> (:) <$> parse <*> parseBlockItensM)
+                       _             -> (:) <$> parse <*> parseBlockItens)
 
 -- <block_item> ::= <statement> | <declaration>
 instance Parser BlockItem where
@@ -222,13 +222,15 @@ instance Parser Declaration where
 -- <exp> ::= <factor> | <exp> <binop> <exp>
 instance Parser Exp where
   parse :: ParserMonad Exp
-  parse = precedenceClimbM 0
+  parse = precedenceClimb 0
 
-precedenceClimbM :: Natural -> ParserMonad Exp
-precedenceClimbM basePrec =
-  parseFactorM >>= \left -> catchST (const $ return left) (precedenceClimbM' basePrec left)
-  where precedenceClimbM' :: Natural -> Exp -> ParserMonad Exp
-        precedenceClimbM' minPrec left =
+-- Parses binary operator expressions. It uses the operator precedence and associativity to properly parse the expression
+-- <binary-exp> ::= <unary-exp> | <unary-exp> <binop> <unary-exp>
+precedenceClimb :: Natural -> ParserMonad Exp
+precedenceClimb basePrec =
+  parseUnaryExp >>= \left -> catchST (const $ return left) (precedenceClimb' basePrec left)
+  where precedenceClimb' :: Natural -> Exp -> ParserMonad Exp
+        precedenceClimb' minPrec left =
           catchST (const $ return left) $
           do st <- get
              op <- parse
@@ -239,7 +241,7 @@ precedenceClimbM basePrec =
                do let nextPrecedence = case opAssociativity of
                         LeftAssociative  -> opPrecedence + 1
                         RightAssociative -> opPrecedence
-                  right <- precedenceClimbM nextPrecedence
+                  right <- precedenceClimb nextPrecedence
                   let expr = case op of
                        BinaryAssignmentOperator Assign              -> Assignment left right
                        BinaryAssignmentOperator IncAssign           -> Assignment left (Binary Add left right)
@@ -253,7 +255,7 @@ precedenceClimbM basePrec =
                        BinaryAssignmentOperator BitShiftLeftAssign  -> Assignment left (Binary BitShiftLeft left right)
                        BinaryAssignmentOperator BitShiftRightAssign -> Assignment left (Binary BitShiftRight left right)
                        _                                            -> Binary op left right
-                  precedenceClimbM' minPrec expr
+                  precedenceClimb' minPrec expr
 
 -- <factor> ::= <int> | <unop> <exp> | <exp> <unop> | "(" <exp> ")"
 -- <unop> ::= "-" | "~" | "!" | "++" | "--"
