@@ -219,7 +219,7 @@ instance Parser Declaration where
                                     expect TK.Semicolon
                                     return (Declaration name (Just expr)))
 
--- <exp> ::= <factor> | <exp> <binop> <exp>
+-- <exp> ::= <binary-exp>
 instance Parser Exp where
   parse :: ParserMonad Exp
   parse = precedenceClimb 0
@@ -257,28 +257,34 @@ precedenceClimb basePrec =
                        _                                            -> Binary op left right
                   precedenceClimb' minPrec expr
 
--- <factor> ::= <int> | <unop> <exp> | <exp> <unop> | "(" <exp> ")"
--- <unop> ::= "-" | "~" | "!" | "++" | "--"
-parseFactorM :: ParserMonad Exp
-parseFactorM = parseFactorM' >>= consumePostfix
-  where parseFactorM' :: ParserMonad Exp
-        parseFactorM' =
-          peek >>= \t -> case tokenType t of
-               TK.Decrement      -> pop >> parseFactorM <&> PreAssignment Decrement
-               TK.Increment      -> pop >> parseFactorM <&> PreAssignment Increment
-               TK.Minus          -> pop >> parseFactorM <&> Unary Negate
-               TK.Complement     -> pop >> parseFactorM <&> Unary Complement
-               TK.Not            -> pop >> parseFactorM <&> Unary Not
-               TK.OpenParens     -> pop >> parse >>= \expr -> expect TK.CloseParens >> return expr
-               (TK.Constant _)   -> parse <&> Constant
-               (TK.Identifier _) -> parse <&> Var
-               _                 -> pop >> throwError (UnexpectedToken "<factor>" t)
 
-        consumePostfix :: Exp -> ParserMonad Exp
+-- <unary-exp> ::= <postfix-exp> | <unary-op> <unary-exp>
+-- <unary-op> ::= "-" | "~" | "!" | "++" | "--"
+parseUnaryExp :: ParserMonad Exp
+parseUnaryExp =  peek >>= \t -> case tokenType t of
+  TK.Decrement  -> pop >> parseUnaryExp <&> PreAssignment Decrement
+  TK.Increment  -> pop >> parseUnaryExp <&> PreAssignment Increment
+  TK.Minus      -> pop >> parseUnaryExp <&> Unary Negate
+  TK.Complement -> pop >> parseUnaryExp <&> Unary Complement
+  TK.Not        -> pop >> parseUnaryExp <&> Unary Not
+  _             -> parsePostfixExp
+
+-- <postfix-exp> ::= <primary-exp> | <postfix-exp> "++" | <postfix-exp> "--"
+parsePostfixExp :: ParserMonad Exp
+parsePostfixExp = parsePrimaryExp >>= consumePostfix
+  where consumePostfix :: Exp -> ParserMonad Exp
         consumePostfix expr = peek >>= (tokenType >>> \case
                                   TK.Decrement -> pop >> consumePostfix (PostAssignment Decrement expr)
                                   TK.Increment -> pop >> consumePostfix (PostAssignment Increment expr)
                                   _            -> return expr)
+
+-- <primary-exp> ::= <identifier> | <int-constant> | "(" <exp> ")"
+parsePrimaryExp :: ParserMonad Exp
+parsePrimaryExp = peek >>= \t -> case tokenType t of
+  (TK.Identifier _) -> parse <&> Var
+  (TK.Constant _)   -> parse <&> Constant
+  TK.OpenParens     -> pop >> parse >>= \expr -> expect TK.CloseParens >> return expr
+  _                 -> pop >> throwError (UnexpectedToken "<primary-exp>" t)
 
 -- <binop> ::= "-" | "+" | "*" | "/" | "%" | "&&" | "||"
 --           | "==" | "!=" | "<" | "<=" | ">" | ">=" | "="
