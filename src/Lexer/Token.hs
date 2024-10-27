@@ -12,7 +12,7 @@ type Lexeme = Text
 type Identifier = Text
 
 data Token = Token TokenType Lexeme Location
-  deriving Show
+  deriving (Show, Eq)
 
 instance Locatable Token where
   locate :: Token -> Maybe Location

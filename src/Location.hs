@@ -13,7 +13,7 @@ type Column = Int64
 type BufferName = Text
 
 data Location = Location Line Column (Maybe Text)
-  deriving Show
+  deriving (Show, Eq)
 
 class Locatable a where
   locate :: a -> Maybe Location
