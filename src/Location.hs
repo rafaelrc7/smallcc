@@ -15,6 +15,15 @@ type BufferName = Text
 data Location = Location Line Column (Maybe Text)
   deriving (Show, Eq)
 
+instance Ord Location where
+  compare :: Location -> Location -> Ordering
+  compare (Location lin1 col1 _) (Location lin2 col2 _)
+    | lin1 < lin2 = LT
+    | lin1 > lin2 = GT
+    | col1 < col2 = LT
+    | col1 > col2 = GT
+    | otherwise   = EQ
+
 class Locatable a where
   locate :: a -> Maybe Location
 

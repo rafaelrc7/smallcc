@@ -14,6 +14,10 @@ type Identifier = Text
 data Token = Token TokenType Lexeme Location
   deriving (Show, Eq)
 
+instance Ord Token where
+  compare :: Token -> Token -> Ordering
+  compare (Token _ _ loc1) (Token _ _ loc2) = compare loc1 loc2
+
 instance Locatable Token where
   locate :: Token -> Maybe Location
   locate (Token _ _ loc) = Just loc
