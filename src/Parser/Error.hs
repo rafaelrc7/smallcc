@@ -47,7 +47,7 @@ instance Semigroup ParserError where
   (<>) :: ParserError -> ParserError -> ParserError
   UnexpectedToken e1 t1 <> UnexpectedToken e2 t2
     | t1 == t2 = UnexpectedToken (S.union e1 e2) t1
-    | S.size e1 < S.size e2 = UnexpectedToken e2 t2
+    | e1 < e2 = UnexpectedToken e2 t2 -- Use the furtherst error
     | otherwise = UnexpectedToken e1 t1
 
 instance Monoid ParserError where
