@@ -202,7 +202,7 @@ instance Parser Declaration where
   parse :: ParserMonad Declaration
   parse = do expect (TK.Keyword TK.Int)
              name <- parse
-             parseEmptyDec name <|> parseInitDec name
+             parseInitDec name <|> parseEmptyDec name
     where parseEmptyDec :: Identifier -> ParserMonad Declaration
           parseEmptyDec name = do expect TK.Semicolon
                                   return (Declaration name Nothing)
