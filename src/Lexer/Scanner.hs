@@ -116,10 +116,10 @@ scanLineMarker = do (LexerState (RemainingBuffer _ (Location _ c _)) _) <- get
                       Token (String s) _ _ -> return s
                       _                    -> err MalformedToken
 
+                    consumeUntilEOL
+
                     setLine' (fromIntegral line)
                     setBufferName' buff
-
-                    consumeUntilEOL
 
 
 consumeUntilEOL :: LexerMonad ()
