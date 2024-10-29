@@ -115,9 +115,15 @@ translateDeclaration st (P.Declaration lhs (Just rhs)) =
 translateExp :: State -> P.Exp -> ([Instruction], Val, State)
 translateExp s (P.Constant (P.CInt val)) = ([], Const val, s)
 translateExp s (P.Var var) = ([], Var var, s)
-translateExp s (P.Unary  P.Complement      expr)        = translateUnaryOp  s Complement     expr
-translateExp s (P.Unary  P.Negate          expr)        = translateUnaryOp  s Negate         expr
-translateExp s (P.Unary  P.Not             expr)        = translateUnaryOp  s Not            expr
+
+translateExp s (P.Unary  P.Complement      expr)                         = translateUnaryOp        s     Complement     expr
+translateExp s (P.Unary  P.Negate          expr)                         = translateUnaryOp        s     Negate         expr
+translateExp s (P.Unary  P.Not             expr)                         = translateUnaryOp        s     Not            expr
+translateExp s (P.Unary (P.UnaryAssignmentOperator P.PreDecrement)  var) = translatePreAssignment  s var Subtract
+translateExp s (P.Unary (P.UnaryAssignmentOperator P.PreIncrement)  var) = translatePreAssignment  s var Add
+translateExp s (P.Unary (P.UnaryAssignmentOperator P.PostDecrement) var) = translatePostAssignment s var Subtract
+translateExp s (P.Unary (P.UnaryAssignmentOperator P.PostIncrement) var) = translatePostAssignment s var Add
+
 translateExp s (P.Binary P.And             expr1 expr2) = translateAnd      s                expr1 expr2
 translateExp s (P.Binary P.Or              expr1 expr2) = translateOr       s                expr1 expr2
 translateExp s (P.Binary P.BitOr           expr1 expr2) = translateBinaryOp s BitOr          expr1 expr2
@@ -136,39 +142,75 @@ translateExp s (P.Binary P.Subtract        expr1 expr2) = translateBinaryOp s Su
 translateExp s (P.Binary P.Multiply        expr1 expr2) = translateBinaryOp s Multiply       expr1 expr2
 translateExp s (P.Binary P.Divide          expr1 expr2) = translateBinaryOp s Divide         expr1 expr2
 translateExp s (P.Binary P.Remainder       expr1 expr2) = translateBinaryOp s Remainder      expr1 expr2
-translateExp _ (P.Binary (P.BinaryAssignmentOperator _) _ _) = undefined
-translateExp _ (P.Unary  (P.UnaryAssignmentOperator _)  _)   = undefined
 
-translateExp s (P.Assignment lhs rhs) = (lhsInstructions
-                                          ++ rhsInstrucitons
-                                          ++ [ Copy { copySrc = rhs'
-                                                    , copyDst = lhs'
-                                                    }
-                                             ]
-                                        , lhs'
-                                        , s'')
+translateExp s (P.Binary (P.BinaryAssignmentOperator P.AddAssign) lhs rhs)           = translateOpAssignment s lhs rhs Add
+translateExp s (P.Binary (P.BinaryAssignmentOperator P.SubAssign) lhs rhs)           = translateOpAssignment s lhs rhs Subtract
+translateExp s (P.Binary (P.BinaryAssignmentOperator P.MulAssign) lhs rhs)           = translateOpAssignment s lhs rhs Multiply
+translateExp s (P.Binary (P.BinaryAssignmentOperator P.DivAssign) lhs rhs)           = translateOpAssignment s lhs rhs Divide
+translateExp s (P.Binary (P.BinaryAssignmentOperator P.RemAssign) lhs rhs)           = translateOpAssignment s lhs rhs Remainder
+translateExp s (P.Binary (P.BinaryAssignmentOperator P.BitAndAssign) lhs rhs)        = translateOpAssignment s lhs rhs BitAnd
+translateExp s (P.Binary (P.BinaryAssignmentOperator P.BitOrAssign) lhs rhs)         = translateOpAssignment s lhs rhs BitOr
+translateExp s (P.Binary (P.BinaryAssignmentOperator P.BitXORAssign) lhs rhs)        = translateOpAssignment s lhs rhs BitXOR
+translateExp s (P.Binary (P.BinaryAssignmentOperator P.BitShiftLeftAssign) lhs rhs)  = translateOpAssignment s lhs rhs BitShiftLeft
+translateExp s (P.Binary (P.BinaryAssignmentOperator P.BitShiftRightAssign) lhs rhs) = translateOpAssignment s lhs rhs BitShiftRight
+
+translateExp s (P.Binary (P.BinaryAssignmentOperator P.Assign) lhs rhs) =
+  (lhsInstructions
+    ++ rhsInstrucitons
+    ++ [ Copy { copySrc = rhs'
+              , copyDst = lhs'
+              }
+       ]
+  , lhs'
+  , s'')
   where (lhsInstructions, lhs', s') = translateExp s lhs
         (rhsInstrucitons, rhs', s'') = translateExp s' rhs
-translateExp s (P.PreAssignment op var) = ( varInstructions
-                                              ++ [ Binary { binaryOperator = translateUnaryAssignment op
-                                                          , binarySrcs = (var', Const 1)
-                                                          , binaryDst = var'}
-                                                 ]
-                                          , var'
-                                          , s'
-                                          )
+
+translateOpAssignment :: State -> P.Exp -> P.Exp -> BinaryOperator -> ([Instruction], Val, State)
+translateOpAssignment s lhs rhs op =
+  ( instructions
+  , lhs'
+  , s''' )
+  where (lhsInstructions, lhs', s') = translateExp s lhs
+        (rhsInstructions, rhs', s'') = translateExp s' rhs
+        (tmp, s''') = newTmpVar s''
+        opInstruction = Binary { binaryOperator = op
+                               , binarySrcs = (lhs', rhs')
+                               , binaryDst = tmp
+                               }
+        instructions = lhsInstructions
+                        ++ rhsInstructions
+                        ++ [ opInstruction
+                           , Copy { copySrc = tmp
+                                  , copyDst = lhs'
+                                  }
+                           ]
+
+translatePreAssignment :: State -> P.Exp -> BinaryOperator -> ([Instruction], Val, State)
+translatePreAssignment s var op =
+  ( varInstructions
+      ++ [ Binary { binaryOperator = op
+                  , binarySrcs = (var', Const 1)
+                  , binaryDst = var'}
+         ]
+  , var'
+  , s'
+  )
   where (varInstructions, var', s') = translateExp s var
-translateExp s (P.PostAssignment op var) = ( varInstructions
-                                              ++ [ Copy { copySrc = var'
-                                                        , copyDst = tmp
-                                                        }
-                                                 , Binary { binaryOperator = translateUnaryAssignment op
-                                                          , binarySrcs = (var', Const 1)
-                                                          , binaryDst = var'}
-                                                 ]
-                                          , tmp
-                                          , s''
-                                          )
+
+translatePostAssignment :: State -> P.Exp -> BinaryOperator -> ([Instruction], Val, State)
+translatePostAssignment s var op =
+  ( varInstructions
+      ++ [ Copy { copySrc = var'
+                , copyDst = tmp
+                }
+         , Binary { binaryOperator = op
+                  , binarySrcs = (var', Const 1)
+                  , binaryDst = var'}
+         ]
+  , tmp
+  , s''
+  )
   where (varInstructions, var', s') = translateExp s var
         (tmp, s'') = newTmpVar s'
 
@@ -222,10 +264,6 @@ translateAnd s expr1 expr2 = (instructions, resultVar, s''''')
                        , Copy {copySrc=Const 0, copyDst=resultVar}
                        , Label endLabel
                        ]
-
-translateUnaryAssignment :: P.UnaryAssignmentOperator -> BinaryOperator
-translateUnaryAssignment P.Decrement = Subtract
-translateUnaryAssignment P.Increment = Add
 
 newVar :: Maybe Text -> State -> (Val, State)
 newVar label state@State{ stateLastTmp = lastTmp } = (Var newTmpLabel, state{ stateLastTmp = newTmp })

@@ -3,11 +3,13 @@
 
 module SemanticAnalyzer.AST where
 
-import           Parser.AST             (BlockItem (..), Declaration (..),
+import           Parser.AST             (BinaryOperator (BinaryAssignmentOperator),
+                                         BlockItem (..), Declaration (..),
                                          Exp (..),
                                          FunctionDefinition (Function, funcBody),
                                          Identifier, Program (..),
-                                         Statement (..))
+                                         Statement (..),
+                                         UnaryOperator (UnaryAssignmentOperator))
 import           SemanticAnalyzer.Error (SemanticError (..))
 
 import           Data.List              (foldl')
@@ -80,6 +82,15 @@ instance SemanticAnalyzer Declaration where
 instance SemanticAnalyzer Exp where
   resolve :: State -> Exp -> Either SemanticError (Exp, State)
   resolve st expr@(Constant _) = Right (expr, st)
+  resolve st (Binary op@(BinaryAssignmentOperator _) var@(Var _) expr) =
+    do (var',  st')  <- resolve st var
+       (expr', st'') <- resolve st' expr
+       Right (Binary op var' expr', st'')
+  resolve _ (Binary (BinaryAssignmentOperator _) lval _) = Left $ InvalidLHS lval
+  resolve st (Unary op@(UnaryAssignmentOperator _) var@(Var _)) =
+    do (var', st') <- resolve st var
+       Right (Unary op var', st')
+  resolve _ (Unary (UnaryAssignmentOperator _) var) = Left $ InvalidLHS var
   resolve st (Unary op expr) = resolve st expr >>= \(expr', st') -> Right (Unary op expr', st')
   resolve st (Binary op exprl exprr) =
     do (exprl', st')  <- resolve st exprl
@@ -89,17 +100,4 @@ instance SemanticAnalyzer Exp where
     case M.lookup var varMap of
       Nothing   -> Left $ UndefinedVariableUse var
       Just var' -> Right (Var var', st)
-  resolve st (Assignment var@(Var _) expr) =
-    do (var',  st')  <- resolve st var
-       (expr', st'') <- resolve st' expr
-       Right (Assignment var' expr', st'')
-  resolve _ (Assignment lval _) = Left $ InvalidLHS lval
-  resolve st (PreAssignment op var@(Var _)) =
-    do (var', st') <- resolve st var
-       Right (PreAssignment op var', st')
-  resolve _ (PreAssignment _ var) = Left $ InvalidLHS var
-  resolve st (PostAssignment op var@(Var _)) =
-    do (var', st') <- resolve st var
-       Right (PostAssignment op var', st')
-  resolve _ (PostAssignment _ var) = Left $ InvalidLHS var
 

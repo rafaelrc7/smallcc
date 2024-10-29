@@ -44,9 +44,6 @@ data Exp = Constant Constant
          | Var Identifier
          | Unary UnaryOperator Exp
          | Binary BinaryOperator Exp Exp
-         | Assignment Exp Exp
-         | PreAssignment UnaryAssignmentOperator Exp
-         | PostAssignment UnaryAssignmentOperator Exp
   deriving (Show)
 
 newtype Constant = CInt Int
@@ -58,8 +55,10 @@ data UnaryOperator = Complement
                    | UnaryAssignmentOperator UnaryAssignmentOperator
   deriving (Show)
 
-data UnaryAssignmentOperator = Decrement
-                             | Increment
+data UnaryAssignmentOperator = PreDecrement
+                             | PreIncrement
+                             | PostDecrement
+                             | PostIncrement
   deriving (Show)
 
 data BinaryOperator = Add
@@ -84,11 +83,11 @@ data BinaryOperator = Add
   deriving (Show)
 
 data BinaryAssignmentOperator = Assign
-                              | IncAssign
-                              | DecAssign
+                              | AddAssign
+                              | SubAssign
                               | MulAssign
                               | DivAssign
-                              | ModAssign
+                              | RemAssign
                               | BitAndAssign
                               | BitOrAssign
                               | BitXORAssign
@@ -105,11 +104,11 @@ data Precedence = Precedence Associativity Natural
 -- https://en.cppreference.com/w/c/language/operator_precedence
 precedence :: BinaryOperator -> Precedence
 precedence (BinaryAssignmentOperator Assign)              = Precedence RightAssociative 1
-precedence (BinaryAssignmentOperator IncAssign)           = Precedence RightAssociative 1
-precedence (BinaryAssignmentOperator DecAssign)           = Precedence RightAssociative 1
+precedence (BinaryAssignmentOperator AddAssign)           = Precedence RightAssociative 1
+precedence (BinaryAssignmentOperator SubAssign)           = Precedence RightAssociative 1
 precedence (BinaryAssignmentOperator MulAssign)           = Precedence RightAssociative 1
 precedence (BinaryAssignmentOperator DivAssign)           = Precedence RightAssociative 1
-precedence (BinaryAssignmentOperator ModAssign)           = Precedence RightAssociative 1
+precedence (BinaryAssignmentOperator RemAssign)           = Precedence RightAssociative 1
 precedence (BinaryAssignmentOperator BitAndAssign)        = Precedence RightAssociative 1
 precedence (BinaryAssignmentOperator BitOrAssign)         = Precedence RightAssociative 1
 precedence (BinaryAssignmentOperator BitXORAssign)        = Precedence RightAssociative 1
@@ -236,27 +235,13 @@ precedenceClimb basePrec =
                         LeftAssociative  -> opPrecedence + 1
                         RightAssociative -> opPrecedence
                   right <- precedenceClimb nextPrecedence
-                  let expr = case op of
-                       BinaryAssignmentOperator Assign              -> Assignment left right
-                       BinaryAssignmentOperator IncAssign           -> Assignment left (Binary Add left right)
-                       BinaryAssignmentOperator DecAssign           -> Assignment left (Binary Subtract left right)
-                       BinaryAssignmentOperator MulAssign           -> Assignment left (Binary Multiply left right)
-                       BinaryAssignmentOperator DivAssign           -> Assignment left (Binary Divide left right)
-                       BinaryAssignmentOperator ModAssign           -> Assignment left (Binary Remainder left right)
-                       BinaryAssignmentOperator BitAndAssign        -> Assignment left (Binary BitAnd left right)
-                       BinaryAssignmentOperator BitOrAssign         -> Assignment left (Binary BitOr left right)
-                       BinaryAssignmentOperator BitXORAssign        -> Assignment left (Binary BitXOR left right)
-                       BinaryAssignmentOperator BitShiftLeftAssign  -> Assignment left (Binary BitShiftLeft left right)
-                       BinaryAssignmentOperator BitShiftRightAssign -> Assignment left (Binary BitShiftRight left right)
-                       _                                            -> Binary op left right
-                  precedenceClimb' minPrec expr
-
+                  precedenceClimb' minPrec (Binary op left right)
 
 -- <unary-exp> ::= <postfix-exp> | <unary-op> <unary-exp>
 -- <unary-op> ::= "-" | "~" | "!" | "++" | "--"
 parseUnaryExp :: ParserMonad Exp
-parseUnaryExp = (expect TK.Decrement  >> parseUnaryExp <&> PreAssignment Decrement)
-            <|> (expect TK.Increment  >> parseUnaryExp <&> PreAssignment Increment)
+parseUnaryExp = (expect TK.Decrement  >> parseUnaryExp <&> Unary (UnaryAssignmentOperator PreDecrement))
+            <|> (expect TK.Increment  >> parseUnaryExp <&> Unary (UnaryAssignmentOperator PreIncrement))
             <|> (expect TK.Minus      >> parseUnaryExp <&> Unary Negate)
             <|> (expect TK.Complement >> parseUnaryExp <&> Unary Complement)
             <|> (expect TK.Not        >> parseUnaryExp <&> Unary Not)
@@ -266,8 +251,8 @@ parseUnaryExp = (expect TK.Decrement  >> parseUnaryExp <&> PreAssignment Decreme
 parsePostfixExp :: ParserMonad Exp
 parsePostfixExp = parsePrimaryExp >>= consumePostfix
   where consumePostfix :: Exp -> ParserMonad Exp
-        consumePostfix expr = (expect TK.Decrement >> consumePostfix (PostAssignment Decrement expr))
-                          <|> (expect TK.Increment >> consumePostfix (PostAssignment Increment expr))
+        consumePostfix expr = (expect TK.Decrement >> consumePostfix (Unary (UnaryAssignmentOperator PostDecrement) expr))
+                          <|> (expect TK.Increment >> consumePostfix (Unary (UnaryAssignmentOperator PostIncrement) expr))
                           <|> return expr
 
 -- <primary-exp> ::= <identifier> | <int-constant> | "(" <exp> ")"
@@ -304,24 +289,24 @@ instance Parser BinaryOperator where
 instance Parser BinaryAssignmentOperator where
   parse :: ParserMonad BinaryAssignmentOperator
   parse = (expect TK.Equals              >> return Assign)
-      <|> (expect TK.IncAssign           >> return IncAssign)
-      <|> (expect TK.DecAssign           >> return DecAssign)
+      <|> (expect TK.IncAssign           >> return AddAssign)
+      <|> (expect TK.DecAssign           >> return SubAssign)
       <|> (expect TK.MulAssign           >> return MulAssign)
       <|> (expect TK.DivAssign           >> return DivAssign)
-      <|> (expect TK.ModAssign           >> return ModAssign)
+      <|> (expect TK.ModAssign           >> return RemAssign)
       <|> (expect TK.BitAndAssign        >> return BitAndAssign)
       <|> (expect TK.BitOrAssign         >> return BitOrAssign)
       <|> (expect TK.BitXORAssign        >> return BitXORAssign)
       <|> (expect TK.BitShiftLeftAssign  >> return BitShiftLeftAssign)
       <|> (expect TK.BitShiftRightAssign >> return BitShiftRightAssign)
 
--- <int> ::= Tokens.Constant
+-- <constant> ::= Tokens.Constant
 instance Parser Constant where
   parse :: ParserMonad Constant
   parse = get >>= \case
     (Token (TK.Constant c) _ _ : ts) -> put ts >> return (CInt c)
-    (t:_)                              -> throwError $ unexpectedToken "<int>" t
-    []                                 -> throwError $ unexpectedEOF "<int>"
+    (t:_)                              -> throwError $ unexpectedToken "<constant>" t
+    []                                 -> throwError $ unexpectedEOF "<constant>"
 
 -- <identifier> ::= Tokens.Identifier
 instance Parser Identifier where
@@ -363,18 +348,11 @@ instance PrettyPrinter Declaration where
 instance PrettyPrinter Exp where
   pretty :: Exp -> Text
   pretty (Constant val) = pretty val
-  pretty (Unary op expr) = pretty op <> pretty expr
+  pretty (Unary op@(UnaryAssignmentOperator PostDecrement) expr) = "(" <> pretty expr <> pretty op <> ")"
+  pretty (Unary op@(UnaryAssignmentOperator PostIncrement) expr) = "(" <> pretty expr <> pretty op <> ")"
+  pretty (Unary op expr) = "(" <> pretty op <> pretty expr <> ")"
   pretty (Binary op exprl exprr) = "(" <> T.intercalate " " [pretty exprl, pretty op, pretty exprr] <> ")"
   pretty (Var var) = var
-  pretty (Assignment lhs rhs) = "(" <> lhs' <> " = " <> rhs' <> ")"
-    where lhs' = pretty lhs
-          rhs' = pretty rhs
-  pretty (PreAssignment op var) = "(" <> op' <> var' <> ")"
-    where var' = pretty var
-          op'  = pretty op
-  pretty (PostAssignment op var) = "(" <> var' <> op' <> ")"
-    where var' = pretty var
-          op'  = pretty op
 
 instance PrettyPrinter Constant where
   pretty :: Constant -> Text
@@ -389,8 +367,10 @@ instance PrettyPrinter UnaryOperator where
 
 instance PrettyPrinter UnaryAssignmentOperator where
   pretty :: UnaryAssignmentOperator -> Text
-  pretty Decrement = "--"
-  pretty Increment = "++"
+  pretty PreDecrement  = "--"
+  pretty PreIncrement  = "++"
+  pretty PostDecrement = "--"
+  pretty PostIncrement = "++"
 
 instance PrettyPrinter BinaryOperator where
   pretty :: BinaryOperator -> Text
@@ -413,11 +393,11 @@ instance PrettyPrinter BinaryOperator where
   pretty Divide                                         = "/"
   pretty Remainder                                      = "%"
   pretty (BinaryAssignmentOperator Assign)              = "="
-  pretty (BinaryAssignmentOperator IncAssign)           = "+="
-  pretty (BinaryAssignmentOperator DecAssign)           = "-="
+  pretty (BinaryAssignmentOperator AddAssign)           = "+="
+  pretty (BinaryAssignmentOperator SubAssign)           = "-="
   pretty (BinaryAssignmentOperator MulAssign)           = "*="
   pretty (BinaryAssignmentOperator DivAssign)           = "/="
-  pretty (BinaryAssignmentOperator ModAssign)           = "%="
+  pretty (BinaryAssignmentOperator RemAssign)           = "%="
   pretty (BinaryAssignmentOperator BitAndAssign)        = "&="
   pretty (BinaryAssignmentOperator BitOrAssign)         = "|="
   pretty (BinaryAssignmentOperator BitXORAssign)        = "^="
