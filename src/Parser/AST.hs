@@ -305,8 +305,8 @@ instance Parser Constant where
   parse :: ParserMonad Constant
   parse = get >>= \case
     (Token (TK.Constant c) _ _ : ts) -> put ts >> return (CInt c)
-    (t:_)                              -> throwError $ unexpectedToken "<constant>" t
-    []                                 -> throwError $ unexpectedEOF "<constant>"
+    (t : _)                          -> throwError $ unexpectedToken "<constant>" t
+    []                               -> throwError $ unexpectedEOF "<constant>"
 
 -- <identifier> ::= Tokens.Identifier
 instance Parser Identifier where
