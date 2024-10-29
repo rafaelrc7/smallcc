@@ -184,25 +184,22 @@ translateInstruction (T.Unary { T.unaryOperator=T.Not, T.unarySrc=src, T.unaryDs
   ] ++ translateInstruction is
   where src' = translateOperand src
         dst' = translateOperand dst
-translateInstruction (T.Unary { T.unaryOperator=op, T.unarySrc=src, T.unaryDst=dst} : is) =
-  [ Mov {movSrc=src', movDst=dst'}
-  , Unary {unaryOp=op', unaryOperand=dst'}
-  ] ++ translateInstruction is
-  where src' = translateOperand src
-        dst' = translateOperand dst
-        op' = translateUnaryOp op
-translateInstruction (T.Binary { T.binaryOperator=op@T.EqualsTo, T.binarySrcs=(src1, src2), T.binaryDst=dst} : is) =
-  translateCmpInstruction op src1 src2 dst ++ translateInstruction is
-translateInstruction (T.Binary { T.binaryOperator=op@T.NotEqualsTo, T.binarySrcs=(src1, src2), T.binaryDst=dst} : is) =
-  translateCmpInstruction op src1 src2 dst ++ translateInstruction is
-translateInstruction (T.Binary { T.binaryOperator=op@T.Less, T.binarySrcs=(src1, src2), T.binaryDst=dst} : is) =
-  translateCmpInstruction op src1 src2 dst ++ translateInstruction is
-translateInstruction (T.Binary { T.binaryOperator=op@T.LessOrEqual, T.binarySrcs=(src1, src2), T.binaryDst=dst} : is) =
-  translateCmpInstruction op src1 src2 dst ++ translateInstruction is
-translateInstruction (T.Binary { T.binaryOperator=op@T.Greater, T.binarySrcs=(src1, src2), T.binaryDst=dst} : is) =
-  translateCmpInstruction op src1 src2 dst ++ translateInstruction is
-translateInstruction (T.Binary { T.binaryOperator=op@T.GreaterOrEqual, T.binarySrcs=(src1, src2), T.binaryDst=dst} : is) =
-  translateCmpInstruction op src1 src2 dst ++ translateInstruction is
+translateInstruction (T.Unary { T.unaryOperator=T.Complement, T.unarySrc=src, T.unaryDst=dst} : is) =
+  translateUnaryInstruction Not src dst ++ translateInstruction is
+translateInstruction (T.Unary { T.unaryOperator=T.Negate, T.unarySrc=src, T.unaryDst=dst} : is) =
+  translateUnaryInstruction Neg src dst ++ translateInstruction is
+translateInstruction (T.Binary { T.binaryOperator=T.EqualsTo, T.binarySrcs=(src1, src2), T.binaryDst=dst} : is) =
+  translateCmpInstruction E src1 src2 dst ++ translateInstruction is
+translateInstruction (T.Binary { T.binaryOperator=T.NotEqualsTo, T.binarySrcs=(src1, src2), T.binaryDst=dst} : is) =
+  translateCmpInstruction NE src1 src2 dst ++ translateInstruction is
+translateInstruction (T.Binary { T.binaryOperator=T.Less, T.binarySrcs=(src1, src2), T.binaryDst=dst} : is) =
+  translateCmpInstruction L src1 src2 dst ++ translateInstruction is
+translateInstruction (T.Binary { T.binaryOperator=T.LessOrEqual, T.binarySrcs=(src1, src2), T.binaryDst=dst} : is) =
+  translateCmpInstruction LE src1 src2 dst ++ translateInstruction is
+translateInstruction (T.Binary { T.binaryOperator=T.Greater, T.binarySrcs=(src1, src2), T.binaryDst=dst} : is) =
+  translateCmpInstruction G src1 src2 dst ++ translateInstruction is
+translateInstruction (T.Binary { T.binaryOperator=T.GreaterOrEqual, T.binarySrcs=(src1, src2), T.binaryDst=dst} : is) =
+  translateCmpInstruction GE src1 src2 dst ++ translateInstruction is
 translateInstruction (T.Binary { T.binaryOperator=T.Divide, T.binarySrcs=(srcl, srcr), T.binaryDst=dst} : is) =
   [ Mov {movSrc=srcl', movDst=Reg AX}
   , Cdq
@@ -221,14 +218,22 @@ translateInstruction (T.Binary { T.binaryOperator=T.Remainder, T.binarySrcs=(src
   where srcl' = translateOperand srcl
         srcr' = translateOperand srcr
         dst' = translateOperand dst
-translateInstruction (T.Binary { T.binaryOperator=op, T.binarySrcs=(srcl, srcr), T.binaryDst=dst} : is) =
-  [ Mov {movSrc=srcl', movDst=dst'}
-  , Binary {binaryOp=op', binaryOperands=(srcr', dst')}
-  ] ++ translateInstruction is
-  where srcl' = translateOperand srcl
-        srcr' = translateOperand srcr
-        dst' = translateOperand dst
-        op' = translateBinaryOp op
+translateInstruction (T.Binary { T.binaryOperator=T.BitOr, T.binarySrcs=(srcl, srcr), T.binaryDst=dst} : is) =
+  translateBinaryInstruction Or srcl srcr dst ++ translateInstruction is
+translateInstruction (T.Binary { T.binaryOperator=T.BitXOR, T.binarySrcs=(srcl, srcr), T.binaryDst=dst} : is) =
+  translateBinaryInstruction Xor srcl srcr dst ++ translateInstruction is
+translateInstruction (T.Binary { T.binaryOperator=T.BitAnd, T.binarySrcs=(srcl, srcr), T.binaryDst=dst} : is) =
+  translateBinaryInstruction And srcl srcr dst ++ translateInstruction is
+translateInstruction (T.Binary { T.binaryOperator=T.BitShiftLeft, T.binarySrcs=(srcl, srcr), T.binaryDst=dst} : is) =
+  translateBinaryInstruction ShiftLeft srcl srcr dst ++ translateInstruction is
+translateInstruction (T.Binary { T.binaryOperator=T.BitShiftRight, T.binarySrcs=(srcl, srcr), T.binaryDst=dst} : is) =
+  translateBinaryInstruction ShiftRight srcl srcr dst ++ translateInstruction is
+translateInstruction (T.Binary { T.binaryOperator=T.Add, T.binarySrcs=(srcl, srcr), T.binaryDst=dst} : is) =
+  translateBinaryInstruction Add srcl srcr dst ++ translateInstruction is
+translateInstruction (T.Binary { T.binaryOperator=T.Subtract, T.binarySrcs=(srcl, srcr), T.binaryDst=dst} : is) =
+  translateBinaryInstruction Sub srcl srcr dst ++ translateInstruction is
+translateInstruction (T.Binary { T.binaryOperator=T.Multiply, T.binarySrcs=(srcl, srcr), T.binaryDst=dst} : is) =
+  translateBinaryInstruction Mult srcl srcr dst ++ translateInstruction is
 translateInstruction (T.Jump label : is) =
   Jmp label : translateInstruction is
 translateInstruction (T.JumpIfZero val label : is) =
@@ -244,50 +249,34 @@ translateInstruction (T.Copy src dst : is) =
 translateInstruction (T.Label label : is) =
   Label label : translateInstruction is
 
-translateCmpInstruction :: T.BinaryOperator -> T.Val -> T.Val -> T.Val -> [Instruction]
+translateUnaryInstruction :: UnaryOperator -> T.Val -> T.Val -> [Instruction]
+translateUnaryInstruction op src dst =
+  [ Mov {movSrc=src', movDst=dst'}
+  , Unary {unaryOp=op, unaryOperand=dst'}
+  ]
+  where src' = translateOperand src
+        dst' = translateOperand dst
+
+translateBinaryInstruction :: BinaryOperator -> T.Val -> T.Val -> T.Val -> [Instruction]
+translateBinaryInstruction op srcl srcr dst =
+  [ Mov {movSrc=srcl', movDst=dst'}
+  , Binary {binaryOp=op, binaryOperands=(srcr', dst')}
+  ]
+  where srcl' = translateOperand srcl
+        srcr' = translateOperand srcr
+        dst' = translateOperand dst
+
+translateCmpInstruction :: Conditional -> T.Val -> T.Val -> T.Val -> [Instruction]
 translateCmpInstruction op src1 src2 dst =
   [ Cmp src2' src1'
   , Mov (Imm 0) dst'
-  , SetCC cond dst'
+  , SetCC op dst'
   ]
   where src1' = translateOperand src1
         src2' = translateOperand src2
         dst' = translateOperand dst
-        cond = translateCmpOp op
-
-translateCmpOp :: T.BinaryOperator -> Conditional
-translateCmpOp T.EqualsTo       = E
-translateCmpOp T.NotEqualsTo    = NE
-translateCmpOp T.Less           = L
-translateCmpOp T.LessOrEqual    = LE
-translateCmpOp T.Greater        = G
-translateCmpOp T.GreaterOrEqual = GE
-translateCmpOp _                = undefined
 
 translateOperand :: T.Val -> Operand
 translateOperand (T.Const v) = Imm v
 translateOperand (T.Var i)   = Pseudo i
-
-translateUnaryOp :: T.UnaryOperator -> UnaryOperator
-translateUnaryOp T.Complement = Not
-translateUnaryOp T.Negate     = Neg
-translateUnaryOp T.Not        = undefined
-
-translateBinaryOp :: T.BinaryOperator -> BinaryOperator
-translateBinaryOp T.BitOr          = Or
-translateBinaryOp T.BitXOR         = Xor
-translateBinaryOp T.BitAnd         = And
-translateBinaryOp T.EqualsTo       = undefined
-translateBinaryOp T.NotEqualsTo    = undefined
-translateBinaryOp T.Less           = undefined
-translateBinaryOp T.LessOrEqual    = undefined
-translateBinaryOp T.Greater        = undefined
-translateBinaryOp T.GreaterOrEqual = undefined
-translateBinaryOp T.BitShiftLeft   = ShiftLeft
-translateBinaryOp T.BitShiftRight  = ShiftRight
-translateBinaryOp T.Add            = Add
-translateBinaryOp T.Subtract       = Sub
-translateBinaryOp T.Multiply       = Mult
-translateBinaryOp T.Divide         = undefined
-translateBinaryOp T.Remainder      = undefined
 
