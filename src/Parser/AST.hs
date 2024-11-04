@@ -155,9 +155,6 @@ expect s = get >>= \case
          | otherwise -> throwError $ unexpectedToken s' t
   where s' = T.pack $ show s
 
-expect' :: [TokenType] -> ParserMonad ()
-expect' = foldr ((*>) . expect) (pure ())
-
 -- <program> ::= <function>
 instance Parser Program where
   parse :: ParserMonad Program
@@ -169,7 +166,7 @@ instance Parser FunctionDefinition where
   parse :: ParserMonad FunctionDefinition
   parse = do expect (TK.Keyword TK.Int)
              name <- parse
-             expect' [ TK.OpenParens, TK.Keyword TK.Void, TK.CloseParens ]
+             mapM_ expect [ TK.OpenParens, TK.Keyword TK.Void, TK.CloseParens ]
              bis <- parseBlock
              return Function { funcName = name
                              , funcBody = bis
