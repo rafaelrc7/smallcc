@@ -153,7 +153,7 @@ expect s = get >>= \case
   (t@(Token tt _ _):ts)
          | tt == s -> put ts
          | otherwise -> throwError $ unexpectedToken s' t
-  where s' = T.pack $ show s
+  where s' = pretty s
 
 -- <program> ::= <function>
 instance Parser Program where
