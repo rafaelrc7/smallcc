@@ -13,7 +13,7 @@ import           Control.Monad.State  (MonadState (get, put), StateT)
 import           Data.Functor         (($>))
 import           Numeric.Natural      (Natural)
 
-import           Control.Applicative  (many, (<|>))
+import           Control.Applicative  (many, optional, (<|>))
 import           Lexer.Token          (Token (..), TokenType)
 import qualified Lexer.Token          as TK
 import           Parser.Error         (ParserError (..), expectedEOF,
@@ -191,10 +191,7 @@ instance Parser Statement where
 -- <declaration> ::= "int" <identifier> ["=" <exp>] ";"
 instance Parser Declaration where
   parse :: ParserMonad Declaration
-  parse = do expect (TK.Keyword TK.Int)
-             name <- parse
-             expect TK.Equals *> (Declaration name . Just <$> parse) <* expect TK.Semicolon
-              <|> expect TK.Semicolon $> Declaration name Nothing
+  parse = expect (TK.Keyword TK.Int) *> (Declaration <$> parse <*> optional (expect TK.Equals *> parse)) <* expect TK.Semicolon
 
 -- <exp> ::= <binary-exp>
 instance Parser Exp where
