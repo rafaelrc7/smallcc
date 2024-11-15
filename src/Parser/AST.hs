@@ -34,6 +34,7 @@ data BlockItem = Stmt Statement
 
 data Statement = Return Exp
                | Expression Exp
+               | If Exp Statement (Maybe Statement)
                | Null
   deriving (Show)
 
@@ -181,11 +182,12 @@ instance Parser BlockItem where
   parse = Dec  <$> parse
       <|> Stmt <$> parse
 
--- <statement> ::= "return" <exp> ";"
+-- <statement> ::= "return" <exp> ";" | <exp> ";" | "if" "(" <exp> ")" <statement> ["else" <statement>] | ";"
 instance Parser Statement where
   parse :: ParserMonad Statement
   parse = expect TK.Semicolon $> Null
       <|> expect (TK.Keyword TK.Return) *> (Return <$> parse) <* expect TK.Semicolon
+      <|> expect (TK.Keyword TK.If) *> (If <$> (expect TK.OpenParens *> parse <* expect TK.CloseParens) <*> parse <*> optional (expect (TK.Keyword TK.Else) *> parse))
       <|> Expression <$> parse <* expect TK.Semicolon
 
 -- <declaration> ::= "int" <identifier> ["=" <exp>] ";"
@@ -319,6 +321,8 @@ instance PrettyPrinter Statement where
     where ret = "return "
           expr' = pretty expr
   pretty (Expression expr) = pretty expr <> ";\n"
+  pretty (If cond expThen Nothing) = "if (" <> pretty cond <> ")\n" <> identLines (pretty expThen)
+  pretty (If cond expThen (Just expElse)) = "if (" <> pretty cond <> ")\n" <> identLines (pretty expThen) <> "\nelse\n" <> identLines (pretty expElse)
   pretty Null = ";\n"
 
 instance PrettyPrinter Declaration where

@@ -64,11 +64,15 @@ data TokenType = Keyword Keyword
                | BitXORAssign
                | BitShiftLeftAssign
                | BitShiftRightAssign
+               | QuestionMark
+               | Colon
   deriving (Show, Eq)
 
 data Keyword = Int
              | Void
              | Return
+             | If
+             | Else
   deriving (Show, Eq)
 
 tokenType :: Token -> TokenType
@@ -78,6 +82,8 @@ scanKeyword :: Identifier -> Maybe Keyword
 scanKeyword "int"    = Just Int
 scanKeyword "void"   = Just Void
 scanKeyword "return" = Just Return
+scanKeyword "if"     = Just If
+scanKeyword "else"   = Just Else
 scanKeyword _        = Nothing
 
 instance PrettyPrinter TokenType where
@@ -124,10 +130,14 @@ instance PrettyPrinter TokenType where
   pretty BitXORAssign        = "^="
   pretty BitShiftLeftAssign  = "<<="
   pretty BitShiftRightAssign = ">>="
+  pretty QuestionMark        = "?"
+  pretty Colon               = ":"
 
 instance PrettyPrinter Keyword where
   pretty :: Keyword -> Text
   pretty Int    = "int"
   pretty Void   = "void"
   pretty Return = "return"
+  pretty If     = "if"
+  pretty Else   = "else"
 
