@@ -45,6 +45,7 @@ data Exp = Constant Constant
          | Var Identifier
          | Unary UnaryOperator Exp
          | Binary BinaryOperator Exp Exp
+         | Conditional Exp Exp Exp
   deriving (Show)
 
 newtype Constant = CInt Int
@@ -195,30 +196,42 @@ instance Parser Declaration where
   parse :: ParserMonad Declaration
   parse = expect (TK.Keyword TK.Int) *> (Declaration <$> parse <*> optional (expect TK.Equals *> parse)) <* expect TK.Semicolon
 
--- <exp> ::= <binary-exp>
+-- <exp> ::= <assignment-exp>
 instance Parser Exp where
   parse :: ParserMonad Exp
-  parse = precedenceClimb 0
+  parse = parseAssignmentExp
+
+-- <assignment-exp> ::= <conditional-exp> | <unary-exp> <assignment-op> <assignment-exp>
+parseAssignmentExp :: ParserMonad Exp
+parseAssignmentExp = flip Binary <$> parseUnaryExp <*> (BinaryAssignmentOperator <$> parse) <*> parseAssignmentExp
+                 <|> parseConditionalExp
+
+-- <conditional-exp> ::= <binary-exp> | <binary-exp> "?" <exp> ":" <conditional-exp>
+parseConditionalExp :: ParserMonad Exp
+parseConditionalExp = Conditional <$> parseBinaryExp <*> (expect TK.QuestionMark *> parse) <*> (expect TK.Colon *> parseConditionalExp)
+                  <|> parseBinaryExp
 
 -- Parses binary operator expressions. It uses the operator precedence and associativity to properly parse the expression
 -- <binary-exp> ::= <unary-exp> | <unary-exp> <binop> <unary-exp>
-precedenceClimb :: Natural -> ParserMonad Exp
-precedenceClimb basePrec =
-  parseUnaryExp >>= \left -> catchST (const $ return left) (precedenceClimb' basePrec left)
-  where precedenceClimb' :: Natural -> Exp -> ParserMonad Exp
-        precedenceClimb' minPrec left =
-          catchST (const $ return left) $
-          do st <- get
-             op <- parse
-             let (Precedence opAssociativity opPrecedence) = precedence op
-             if opPrecedence < minPrec then
-               put st >> return left
-             else
-               do let nextPrecedence = case opAssociativity of
-                        LeftAssociative  -> opPrecedence + 1
-                        RightAssociative -> opPrecedence
-                  right <- precedenceClimb nextPrecedence
-                  precedenceClimb' minPrec (Binary op left right)
+parseBinaryExp :: ParserMonad Exp
+parseBinaryExp = precedenceClimb 0
+  where precedenceClimb :: Natural -> ParserMonad Exp
+        precedenceClimb basePrec =
+          parseUnaryExp >>= \left -> catchST (const $ return left) (precedenceClimb' basePrec left)
+          where precedenceClimb' :: Natural -> Exp -> ParserMonad Exp
+                precedenceClimb' minPrec left =
+                  catchST (const $ return left) $
+                  do st <- get
+                     op <- parse
+                     let (Precedence opAssociativity opPrecedence) = precedence op
+                     if opPrecedence < minPrec then
+                       put st >> return left
+                     else
+                       do let nextPrecedence = case opAssociativity of
+                                LeftAssociative  -> opPrecedence + 1
+                                RightAssociative -> opPrecedence
+                          right <- precedenceClimb nextPrecedence
+                          precedenceClimb' minPrec (Binary op left right)
 
 -- <unary-exp> ::= <postfix-exp> | <unary-op> <unary-exp>
 -- <unary-op> ::= "-" | "~" | "!" | "++" | "--"
@@ -333,11 +346,12 @@ instance PrettyPrinter Declaration where
 instance PrettyPrinter Exp where
   pretty :: Exp -> Text
   pretty (Constant val) = pretty val
+  pretty (Var var) = var
   pretty (Unary op@(UnaryAssignmentOperator PostDecrement) expr) = "(" <> pretty expr <> pretty op <> ")"
   pretty (Unary op@(UnaryAssignmentOperator PostIncrement) expr) = "(" <> pretty expr <> pretty op <> ")"
   pretty (Unary op expr) = "(" <> pretty op <> pretty expr <> ")"
   pretty (Binary op exprl exprr) = "(" <> T.intercalate " " [pretty exprl, pretty op, pretty exprr] <> ")"
-  pretty (Var var) = var
+  pretty (Conditional cond exp1 exp2) = "(" <> pretty cond <> " ? " <> pretty exp1 <> " : " <> pretty exp2 <> ")"
 
 instance PrettyPrinter Constant where
   pretty :: Constant -> Text
