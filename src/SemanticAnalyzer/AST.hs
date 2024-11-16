@@ -3,9 +3,8 @@
 
 module SemanticAnalyzer.AST where
 
-import           Parser.AST             (AssignmentOperator (..),
-                                         BinaryOperator (..), BlockItem (..),
-                                         Declaration (..), Exp (..),
+import           Parser.AST             (BlockItem (..), Declaration (..),
+                                         Exp (..),
                                          FunctionDefinition (Function, funcBody),
                                          Identifier, Program (..),
                                          Statement (..),
@@ -65,6 +64,12 @@ instance SemanticAnalyzer Statement where
   resolve :: State -> Statement -> Either SemanticError (Statement, State)
   resolve st (Return expr) = resolve st expr >>= \(expr', st') -> Right (Return expr', st')
   resolve st (Expression expr) = resolve st expr >>= \(expr', st') -> Right (Expression expr', st')
+  resolve st (If cond exp1 exp2) = do (cond', st') <- resolve st cond
+                                      (exp1', st'') <- resolve st' exp1
+                                      (exp2', st''') <- case exp2 of
+                                        (Just expr) -> resolve st'' expr >>= \(expr', st''') -> return (Just expr', st''')
+                                        Nothing     -> Right (Nothing, st'')
+                                      return (If cond' exp1' exp2', st''')
   resolve st Null = Right (Null, st)
 
 instance SemanticAnalyzer Declaration where
@@ -100,4 +105,10 @@ instance SemanticAnalyzer Exp where
     case M.lookup var varMap of
       Nothing   -> Left $ UndefinedVariableUse var
       Just var' -> Right (Var var', st)
+
+  resolve st (Conditional cond exp1 exp2) = do
+    (cond', st') <- resolve st cond
+    (exp1', st'') <- resolve st' exp1
+    (exp2', st''') <- resolve st'' exp2
+    return (Conditional cond' exp1' exp2', st''')
 
