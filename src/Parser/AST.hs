@@ -45,6 +45,7 @@ data Exp = Constant Constant
          | Var Identifier
          | Unary UnaryOperator Exp
          | Binary BinaryOperator Exp Exp
+         | Assignment Exp AssignmentOperator Exp
          | Conditional Exp Exp Exp
   deriving (Show)
 
@@ -81,20 +82,19 @@ data BinaryOperator = Add
                     | LessOrEqual
                     | Greater
                     | GreaterOrEqual
-                    | BinaryAssignmentOperator BinaryAssignmentOperator
   deriving (Show)
 
-data BinaryAssignmentOperator = Assign
-                              | AddAssign
-                              | SubAssign
-                              | MulAssign
-                              | DivAssign
-                              | RemAssign
-                              | BitAndAssign
-                              | BitOrAssign
-                              | BitXORAssign
-                              | BitShiftLeftAssign
-                              | BitShiftRightAssign
+data AssignmentOperator = Assign
+                        | AddAssign
+                        | SubAssign
+                        | MulAssign
+                        | DivAssign
+                        | RemAssign
+                        | BitAndAssign
+                        | BitOrAssign
+                        | BitXORAssign
+                        | BitShiftLeftAssign
+                        | BitShiftRightAssign
   deriving (Show)
 
 type Identifier = Text
@@ -105,35 +105,24 @@ data Precedence = Precedence Associativity Natural
 
 -- https://en.cppreference.com/w/c/language/operator_precedence
 precedence :: BinaryOperator -> Precedence
-precedence (BinaryAssignmentOperator Assign)              = Precedence RightAssociative 1
-precedence (BinaryAssignmentOperator AddAssign)           = Precedence RightAssociative 1
-precedence (BinaryAssignmentOperator SubAssign)           = Precedence RightAssociative 1
-precedence (BinaryAssignmentOperator MulAssign)           = Precedence RightAssociative 1
-precedence (BinaryAssignmentOperator DivAssign)           = Precedence RightAssociative 1
-precedence (BinaryAssignmentOperator RemAssign)           = Precedence RightAssociative 1
-precedence (BinaryAssignmentOperator BitAndAssign)        = Precedence RightAssociative 1
-precedence (BinaryAssignmentOperator BitOrAssign)         = Precedence RightAssociative 1
-precedence (BinaryAssignmentOperator BitXORAssign)        = Precedence RightAssociative 1
-precedence (BinaryAssignmentOperator BitShiftLeftAssign)  = Precedence RightAssociative 1
-precedence (BinaryAssignmentOperator BitShiftRightAssign) = Precedence RightAssociative 1
-precedence Or                                             = Precedence LeftAssociative  5
-precedence And                                            = Precedence LeftAssociative  10
-precedence BitOr                                          = Precedence LeftAssociative  15
-precedence BitXOR                                         = Precedence LeftAssociative  20
-precedence BitAnd                                         = Precedence LeftAssociative  25
-precedence EqualsTo                                       = Precedence LeftAssociative  30
-precedence NotEqualsTo                                    = Precedence LeftAssociative  30
-precedence Less                                           = Precedence LeftAssociative  35
-precedence LessOrEqual                                    = Precedence LeftAssociative  35
-precedence Greater                                        = Precedence LeftAssociative  35
-precedence GreaterOrEqual                                 = Precedence LeftAssociative  35
-precedence BitShiftLeft                                   = Precedence LeftAssociative  40
-precedence BitShiftRight                                  = Precedence LeftAssociative  40
-precedence Add                                            = Precedence LeftAssociative  45
-precedence Subtract                                       = Precedence LeftAssociative  45
-precedence Multiply                                       = Precedence LeftAssociative  50
-precedence Divide                                         = Precedence LeftAssociative  50
-precedence Remainder                                      = Precedence LeftAssociative  50
+precedence Or             = Precedence LeftAssociative  5
+precedence And            = Precedence LeftAssociative  10
+precedence BitOr          = Precedence LeftAssociative  15
+precedence BitXOR         = Precedence LeftAssociative  20
+precedence BitAnd         = Precedence LeftAssociative  25
+precedence EqualsTo       = Precedence LeftAssociative  30
+precedence NotEqualsTo    = Precedence LeftAssociative  30
+precedence Less           = Precedence LeftAssociative  35
+precedence LessOrEqual    = Precedence LeftAssociative  35
+precedence Greater        = Precedence LeftAssociative  35
+precedence GreaterOrEqual = Precedence LeftAssociative  35
+precedence BitShiftLeft   = Precedence LeftAssociative  40
+precedence BitShiftRight  = Precedence LeftAssociative  40
+precedence Add            = Precedence LeftAssociative  45
+precedence Subtract       = Precedence LeftAssociative  45
+precedence Multiply       = Precedence LeftAssociative  50
+precedence Divide         = Precedence LeftAssociative  50
+precedence Remainder      = Precedence LeftAssociative  50
 
 type ParserState = [Token]
 type ParserMonad a = StateT ParserState (Except ParserError) a
@@ -203,7 +192,7 @@ instance Parser Exp where
 
 -- <assignment-exp> ::= <conditional-exp> | <unary-exp> <assignment-op> <assignment-exp>
 parseAssignmentExp :: ParserMonad Exp
-parseAssignmentExp = flip Binary <$> parseUnaryExp <*> (BinaryAssignmentOperator <$> parse) <*> parseAssignmentExp
+parseAssignmentExp = Assignment <$> parseConditionalExp <*> parse <*> parseAssignmentExp
                  <|> parseConditionalExp
 
 -- <conditional-exp> ::= <binary-exp> | <binary-exp> "?" <exp> ":" <conditional-exp>
@@ -280,10 +269,9 @@ instance Parser BinaryOperator where
       <|> expect TK.Asterisk        $> Multiply
       <|> expect TK.ForwardSlash    $> Divide
       <|> expect TK.Percent         $> Remainder
-      <|> BinaryAssignmentOperator <$> parse
 
-instance Parser BinaryAssignmentOperator where
-  parse :: ParserMonad BinaryAssignmentOperator
+instance Parser AssignmentOperator where
+  parse :: ParserMonad AssignmentOperator
   parse = expect TK.Equals              $> Assign
       <|> expect TK.IncAssign           $> AddAssign
       <|> expect TK.DecAssign           $> SubAssign
@@ -351,6 +339,7 @@ instance PrettyPrinter Exp where
   pretty (Unary op@(UnaryAssignmentOperator PostIncrement) expr) = "(" <> pretty expr <> pretty op <> ")"
   pretty (Unary op expr) = "(" <> pretty op <> pretty expr <> ")"
   pretty (Binary op exprl exprr) = "(" <> T.intercalate " " [pretty exprl, pretty op, pretty exprr] <> ")"
+  pretty (Assignment exprl op exprr) = "(" <> T.intercalate " " [pretty exprl, pretty op, pretty exprr] <> ")"
   pretty (Conditional cond exp1 exp2) = "(" <> pretty cond <> " ? " <> pretty exp1 <> " : " <> pretty exp2 <> ")"
 
 instance PrettyPrinter Constant where
@@ -373,33 +362,36 @@ instance PrettyPrinter UnaryAssignmentOperator where
 
 instance PrettyPrinter BinaryOperator where
   pretty :: BinaryOperator -> Text
-  pretty Or                                             = "||"
-  pretty And                                            = "&&"
-  pretty BitOr                                          = "|"
-  pretty BitXOR                                         = "^"
-  pretty BitAnd                                         = "&"
-  pretty EqualsTo                                       = "=="
-  pretty NotEqualsTo                                    = "!="
-  pretty Less                                           = "<"
-  pretty LessOrEqual                                    = "<="
-  pretty Greater                                        = ">"
-  pretty GreaterOrEqual                                 = ">="
-  pretty BitShiftLeft                                   = "<<"
-  pretty BitShiftRight                                  = ">>"
-  pretty Add                                            = "+"
-  pretty Subtract                                       = "-"
-  pretty Multiply                                       = "*"
-  pretty Divide                                         = "/"
-  pretty Remainder                                      = "%"
-  pretty (BinaryAssignmentOperator Assign)              = "="
-  pretty (BinaryAssignmentOperator AddAssign)           = "+="
-  pretty (BinaryAssignmentOperator SubAssign)           = "-="
-  pretty (BinaryAssignmentOperator MulAssign)           = "*="
-  pretty (BinaryAssignmentOperator DivAssign)           = "/="
-  pretty (BinaryAssignmentOperator RemAssign)           = "%="
-  pretty (BinaryAssignmentOperator BitAndAssign)        = "&="
-  pretty (BinaryAssignmentOperator BitOrAssign)         = "|="
-  pretty (BinaryAssignmentOperator BitXORAssign)        = "^="
-  pretty (BinaryAssignmentOperator BitShiftLeftAssign)  = "<<="
-  pretty (BinaryAssignmentOperator BitShiftRightAssign) = ">>="
+  pretty Or             = "||"
+  pretty And            = "&&"
+  pretty BitOr          = "|"
+  pretty BitXOR         = "^"
+  pretty BitAnd         = "&"
+  pretty EqualsTo       = "=="
+  pretty NotEqualsTo    = "!="
+  pretty Less           = "<"
+  pretty LessOrEqual    = "<="
+  pretty Greater        = ">"
+  pretty GreaterOrEqual = ">="
+  pretty BitShiftLeft   = "<<"
+  pretty BitShiftRight  = ">>"
+  pretty Add            = "+"
+  pretty Subtract       = "-"
+  pretty Multiply       = "*"
+  pretty Divide         = "/"
+  pretty Remainder      = "%"
+
+instance PrettyPrinter AssignmentOperator where
+  pretty :: AssignmentOperator -> Text
+  pretty Assign              = "="
+  pretty AddAssign           = "+="
+  pretty SubAssign           = "-="
+  pretty MulAssign           = "*="
+  pretty DivAssign           = "/="
+  pretty RemAssign           = "%="
+  pretty BitAndAssign        = "&="
+  pretty BitOrAssign         = "|="
+  pretty BitXORAssign        = "^="
+  pretty BitShiftLeftAssign  = "<<="
+  pretty BitShiftRightAssign = ">>="
 

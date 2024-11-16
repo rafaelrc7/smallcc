@@ -143,18 +143,18 @@ translateExp s (P.Binary P.Multiply        expr1 expr2) = translateBinaryOp s Mu
 translateExp s (P.Binary P.Divide          expr1 expr2) = translateBinaryOp s Divide         expr1 expr2
 translateExp s (P.Binary P.Remainder       expr1 expr2) = translateBinaryOp s Remainder      expr1 expr2
 
-translateExp s (P.Binary (P.BinaryAssignmentOperator P.AddAssign) lhs rhs)           = translateOpAssignment s lhs rhs Add
-translateExp s (P.Binary (P.BinaryAssignmentOperator P.SubAssign) lhs rhs)           = translateOpAssignment s lhs rhs Subtract
-translateExp s (P.Binary (P.BinaryAssignmentOperator P.MulAssign) lhs rhs)           = translateOpAssignment s lhs rhs Multiply
-translateExp s (P.Binary (P.BinaryAssignmentOperator P.DivAssign) lhs rhs)           = translateOpAssignment s lhs rhs Divide
-translateExp s (P.Binary (P.BinaryAssignmentOperator P.RemAssign) lhs rhs)           = translateOpAssignment s lhs rhs Remainder
-translateExp s (P.Binary (P.BinaryAssignmentOperator P.BitAndAssign) lhs rhs)        = translateOpAssignment s lhs rhs BitAnd
-translateExp s (P.Binary (P.BinaryAssignmentOperator P.BitOrAssign) lhs rhs)         = translateOpAssignment s lhs rhs BitOr
-translateExp s (P.Binary (P.BinaryAssignmentOperator P.BitXORAssign) lhs rhs)        = translateOpAssignment s lhs rhs BitXOR
-translateExp s (P.Binary (P.BinaryAssignmentOperator P.BitShiftLeftAssign) lhs rhs)  = translateOpAssignment s lhs rhs BitShiftLeft
-translateExp s (P.Binary (P.BinaryAssignmentOperator P.BitShiftRightAssign) lhs rhs) = translateOpAssignment s lhs rhs BitShiftRight
+translateExp s (P.Assignment lhs P.AddAssign rhs)           = translateOpAssignment s lhs rhs Add
+translateExp s (P.Assignment lhs P.SubAssign rhs)           = translateOpAssignment s lhs rhs Subtract
+translateExp s (P.Assignment lhs P.MulAssign rhs)           = translateOpAssignment s lhs rhs Multiply
+translateExp s (P.Assignment lhs P.DivAssign rhs)           = translateOpAssignment s lhs rhs Divide
+translateExp s (P.Assignment lhs P.RemAssign rhs)           = translateOpAssignment s lhs rhs Remainder
+translateExp s (P.Assignment lhs P.BitAndAssign rhs)        = translateOpAssignment s lhs rhs BitAnd
+translateExp s (P.Assignment lhs P.BitOrAssign  rhs)        = translateOpAssignment s lhs rhs BitOr
+translateExp s (P.Assignment lhs P.BitXORAssign rhs)        = translateOpAssignment s lhs rhs BitXOR
+translateExp s (P.Assignment lhs P.BitShiftLeftAssign rhs)  = translateOpAssignment s lhs rhs BitShiftLeft
+translateExp s (P.Assignment lhs P.BitShiftRightAssign rhs) = translateOpAssignment s lhs rhs BitShiftRight
 
-translateExp s (P.Binary (P.BinaryAssignmentOperator P.Assign) lhs rhs) =
+translateExp s (P.Assignment lhs P.Assign rhs) =
   (lhsInstructions
     ++ rhsInstrucitons
     ++ [ Copy { copySrc = rhs'

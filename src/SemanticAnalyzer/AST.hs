@@ -3,9 +3,9 @@
 
 module SemanticAnalyzer.AST where
 
-import           Parser.AST             (BinaryOperator (BinaryAssignmentOperator),
-                                         BlockItem (..), Declaration (..),
-                                         Exp (..),
+import           Parser.AST             (AssignmentOperator (..),
+                                         BinaryOperator (..), BlockItem (..),
+                                         Declaration (..), Exp (..),
                                          FunctionDefinition (Function, funcBody),
                                          Identifier, Program (..),
                                          Statement (..),
@@ -82,11 +82,11 @@ instance SemanticAnalyzer Declaration where
 instance SemanticAnalyzer Exp where
   resolve :: State -> Exp -> Either SemanticError (Exp, State)
   resolve st expr@(Constant _) = Right (expr, st)
-  resolve st (Binary op@(BinaryAssignmentOperator _) var@(Var _) expr) =
+  resolve st (Assignment var@(Var _) op expr) =
     do (var',  st')  <- resolve st var
        (expr', st'') <- resolve st' expr
-       Right (Binary op var' expr', st'')
-  resolve _ (Binary (BinaryAssignmentOperator _) lval _) = Left $ InvalidLHS lval
+       Right (Assignment var' op expr', st'')
+  resolve _ (Assignment lval _ _) = Left $ InvalidLHS lval
   resolve st (Unary op@(UnaryAssignmentOperator _) var@(Var _)) =
     do (var', st') <- resolve st var
        Right (Unary op var', st')
