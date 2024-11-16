@@ -100,6 +100,8 @@ translateStatement st (P.Return expr) = (st', expInstructions ++ [Return expVal]
 translateStatement st (P.Expression expr) = (st', exprInstructions)
   where (exprInstructions, _, st') = translateExp st expr
 translateStatement st (P.If cond stmt1 stmt2) = translateIf st cond stmt1 stmt2
+translateStatement st (P.Goto label) = (st, [ Jump label ])
+translateStatement st (P.Label label) = (st, [ Label label ])
 
 translateDeclaration :: State -> P.Declaration -> (State, [Instruction])
 translateDeclaration st (P.Declaration _ Nothing) = (st, [])

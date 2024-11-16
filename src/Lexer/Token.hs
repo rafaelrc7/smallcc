@@ -73,6 +73,7 @@ data Keyword = Int
              | Return
              | If
              | Else
+             | Goto
   deriving (Show, Eq)
 
 tokenType :: Token -> TokenType
@@ -84,6 +85,7 @@ scanKeyword "void"   = Just Void
 scanKeyword "return" = Just Return
 scanKeyword "if"     = Just If
 scanKeyword "else"   = Just Else
+scanKeyword "goto"   = Just Goto
 scanKeyword _        = Nothing
 
 instance PrettyPrinter TokenType where
@@ -140,4 +142,5 @@ instance PrettyPrinter Keyword where
   pretty Return = "return"
   pretty If     = "if"
   pretty Else   = "else"
+  pretty Goto   = "goto"
 
