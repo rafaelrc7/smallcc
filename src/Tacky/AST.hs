@@ -99,6 +99,7 @@ translateStatement st (P.Return expr) = (st', expInstructions ++ [Return expVal]
   where (expInstructions, expVal, st') = translateExp st expr
 translateStatement st (P.Expression expr) = (st', exprInstructions)
   where (exprInstructions, _, st') = translateExp st expr
+translateStatement st (P.If cond stmt1 stmt2) = translateIf st cond stmt1 stmt2
 
 translateDeclaration :: State -> P.Declaration -> (State, [Instruction])
 translateDeclaration st (P.Declaration _ Nothing) = (st, [])
@@ -112,9 +113,38 @@ translateDeclaration st (P.Declaration lhs (Just rhs)) =
     )
   where (rhsInstrucitons, rhs', st') = translateExp st rhs
 
+translateIf :: State -> P.Exp -> P.Statement -> Maybe P.Statement -> (State, [Instruction])
+translateIf st cond thenStmt Nothing =
+  (st'''
+  , condIns
+      ++ [ JumpIfZero cond' endLabel ]
+      ++ thenIns
+      ++ [ Label endLabel ]
+  )
+  where (endLabel, st') = newLabel (Just "end") st
+        (condIns, cond', st'') = translateExp st' cond
+        (st''', thenIns) = translateStatement st'' thenStmt
+translateIf st cond thenStmt (Just elseStmt) =
+  (st'''''
+  , condIns
+      ++ [ JumpIfZero cond' elseLabel ]
+      ++ thenIns
+      ++ [ Jump endLabel
+         , Label elseLabel
+         ]
+      ++ elseIns
+      ++ [ Label endLabel ]
+  )
+  where (endLabel, st')   = newLabel (Just "end") st
+        (elseLabel, st'') = newLabel (Just "else") st'
+        (condIns, cond', st''') = translateExp st'' cond
+        (st'''', thenIns) = translateStatement st''' thenStmt
+        (st''''', elseIns) = translateStatement st'''' elseStmt
+
 translateExp :: State -> P.Exp -> ([Instruction], Val, State)
 translateExp s (P.Constant (P.CInt val)) = ([], Const val, s)
 translateExp s (P.Var var) = ([], Var var, s)
+translateExp s (P.Conditional cond expr1 expr2) = translateConditional s cond expr1 expr2
 
 translateExp s (P.Unary  P.Complement      expr)                         = translateUnaryOp        s     Complement     expr
 translateExp s (P.Unary  P.Negate          expr)                         = translateUnaryOp        s     Negate         expr
@@ -264,6 +294,32 @@ translateAnd s expr1 expr2 = (instructions, resultVar, s''''')
                        , Copy {copySrc=Const 0, copyDst=resultVar}
                        , Label endLabel
                        ]
+
+translateConditional :: State -> P.Exp -> P.Exp -> P.Exp -> ([Instruction], Val, State)
+translateConditional st cond expr1 expr2 =
+  ( condIns
+      ++ [ JumpIfZero cond' expr2Label ]
+      ++ expr1Ins
+      ++ copyToResult expr1'
+      ++ [ Jump endLabel
+         , Label expr2Label
+         ]
+      ++ expr2Ins
+      ++ copyToResult expr2'
+      ++ [ Label endLabel ]
+  , result
+  , st''''''
+  )
+  where (expr2Label, st') = newLabel (Just "expr2") st
+        (endLabel, st'') = newLabel (Just "end") st'
+        (result, st''') = newTmpVar st''
+        (condIns, cond', st'''') = translateExp st''' cond
+        (expr1Ins, expr1', st''''') = translateExp st'''' expr1
+        (expr2Ins, expr2', st'''''') = translateExp st''''' expr2
+        copyToResult v =  [ Copy { copySrc = v
+                                 , copyDst = result
+                                 }
+                          ]
 
 newVar :: Maybe Text -> State -> (Val, State)
 newVar label state@State{ stateLastTmp = lastTmp } = (Var newTmpLabel, state{ stateLastTmp = newTmp })
