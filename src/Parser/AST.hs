@@ -30,7 +30,16 @@ data Statement = Return Exp
                | Compound Block
                | Goto Identifier
                | Label Identifier
+               | Break
+               | Continue
+               | While Exp Statement
+               | DoWhile Statement Exp
+               | For ForInit (Maybe Exp) (Maybe Exp) Statement
                | Null
+  deriving (Show)
+
+data ForInit = InitDecl Declaration
+             | InitExp  (Maybe Exp)
   deriving (Show)
 
 data Declaration = Declaration Identifier (Maybe Exp)
@@ -146,7 +155,17 @@ instance PrettyPrinter Statement where
   pretty (Compound block) = "{\n" <> pretty block <> "\n}\n"
   pretty (Goto label) = "goto " <> pretty label <> ";\n"
   pretty (Label label) = pretty label <> ":\n"
+  pretty Break = "break;\n"
+  pretty Continue = "continue;\n"
+  pretty (While cond body) = "while (" <> pretty cond <> ")" <> pretty body
+  pretty (DoWhile body cond) = "do" <> pretty body <> "while (" <> pretty cond <> ");\n"
+  pretty (For ini cond post body) = "for (" <> pretty ini <> "; " <> maybe "" pretty cond <> "; " <> maybe "" pretty post <> ")\n" <> pretty body
   pretty Null = ";\n"
+
+instance PrettyPrinter ForInit where
+  pretty :: ForInit -> Text
+  pretty (InitDecl decl) = pretty decl
+  pretty (InitExp  expr) = maybe "" pretty expr
 
 instance PrettyPrinter Declaration where
   pretty :: Declaration -> Text

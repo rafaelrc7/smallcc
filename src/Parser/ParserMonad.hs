@@ -18,6 +18,7 @@ import           Parser.AST           (AssignmentOperator (..),
                                        BinaryOperator (..), Block (Block),
                                        BlockItem (..), Constant (..),
                                        Declaration (..), Exp (..),
+                                       ForInit (InitDecl, InitExp),
                                        FunctionDefinition (..), Identifier,
                                        Precedence (Precedence), Program (..),
                                        Statement (..),
@@ -74,16 +75,38 @@ instance Parser BlockItem where
   parse = Dec  <$> parse
       <|> Stmt <$> parse
 
--- <statement> ::= "return" <exp> ";" | <exp> ";" | "if" "(" <exp> ")" <statement> ["else" <statement>] | "goto" <identifier> | <identifier> ":" | <block> | ";"
+-- <statement> ::= "return" <exp> ";"
+--               | <exp> ";"
+--               | "if" "(" <exp> ")" <statement> ["else" <statement>]
+--               | "goto" <identifier>
+--               | <identifier> ":"
+--               | <block>
+--               | "break" ";"
+--               | "continue" ";"
+--               | "while" "(" <exp> ")" <statement>
+--               | "do" <statement> "while" "(" <exp> ")" ";"
+--               | "for" "(" <for-init> [<exp>] ";" [<exp>] ")" <statement>
+--               | ";"
 instance Parser Statement where
   parse :: ParserMonad Statement
   parse = expect TK.Semicolon $> Null
       <|> expect (TK.Keyword TK.Return) *> (Return <$> parse) <* expect TK.Semicolon
       <|> expect (TK.Keyword TK.If) *> (If <$> (expect TK.OpenParens *> parse <* expect TK.CloseParens) <*> parse <*> optional (expect (TK.Keyword TK.Else) *> parse))
       <|> expect (TK.Keyword TK.Goto) *> (Goto <$> parse) <* expect TK.Semicolon
+      <|> expect (TK.Keyword TK.Break) $> Break <* expect TK.Semicolon
+      <|> expect (TK.Keyword TK.Continue) $> Continue <* expect TK.Semicolon
+      <|> expect (TK.Keyword TK.While) *> (While <$> (expect TK.OpenParens *> parse <* expect TK.CloseParens) <*> parse)
+      <|> expect (TK.Keyword TK.Do) *> (DoWhile <$> parse <*> (expect (TK.Keyword TK.While) *> expect TK.OpenParens *> parse <* expect TK.CloseParens)) <* expect TK.Semicolon
+      <|> expect (TK.Keyword TK.For) *> (For <$> (expect TK.OpenParens *> parse) <*> (optional parse <* expect TK.Semicolon) <*> (optional parse <* expect TK.CloseParens) <*> parse)
       <|> (Label <$> parse) <* expect TK.Colon
       <|> Compound <$> parse
       <|> Expression <$> parse <* expect TK.Semicolon
+
+-- <for-init> ::= <declaration> | <exp> ";"
+instance Parser ForInit where
+  parse :: ParserMonad ForInit
+  parse = InitDecl <$> parse
+      <|> InitExp  <$> optional parse <* expect TK.Semicolon
 
 -- <declaration> ::= "int" <identifier> ["=" <exp>] ";"
 instance Parser Declaration where
