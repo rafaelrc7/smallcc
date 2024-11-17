@@ -11,6 +11,7 @@ import           Parser.AST             (Block (Block), BlockItem (..),
                                          UnaryOperator (UnaryAssignmentOperator))
 import           SemanticAnalyzer.Error (SemanticError (..))
 
+import           Control.Applicative    (asum)
 import           Control.Monad.Except   (Except, MonadError (..))
 import           Control.Monad.State    (StateT, gets, modify)
 import           Data.Map               (Map)
@@ -71,8 +72,9 @@ newLabel label =
        return label'
 
 getVar :: Identifier -> SemanticAnalyzerMonad Identifier
-getVar var = do m <- gets envCurrentScopeVarEnv
-                case M.lookup var m of
+getVar var = do currentScopeVarEnv <- gets envCurrentScopeVarEnv
+                upperScopeVarEnvs  <- gets envUpperScopesVarEnvs
+                case asum $ map (M.lookup var) $ currentScopeVarEnv : upperScopeVarEnvs of
                   Nothing   -> throwError $ UndefinedIdentifierUse var
                   Just var' -> return var'
 
@@ -106,7 +108,13 @@ instance SemanticAnalyzer FunctionDefinition where
 
 instance SemanticAnalyzer Block where
   resolve :: Block -> SemanticAnalyzerMonad Block
-  resolve (Block blockItens) = Block <$> mapM resolve blockItens
+  resolve (Block blockItens) =
+    do currentScopeVarEnv <- gets envCurrentScopeVarEnv
+       upperScopesVarEnvs <- gets envUpperScopesVarEnvs
+       modify (\env -> env { envCurrentScopeVarEnv = emptyIdentifierMap, envUpperScopesVarEnvs = currentScopeVarEnv : upperScopesVarEnvs })
+       blockItens' <- mapM resolve blockItens
+       modify (\env -> env { envCurrentScopeVarEnv = currentScopeVarEnv, envUpperScopesVarEnvs = upperScopesVarEnvs })
+       pure $ Block blockItens'
 
   checkLabels :: Block -> SemanticAnalyzerMonad Block
   checkLabels (Block blockItens) = Block <$> mapM checkLabels blockItens
