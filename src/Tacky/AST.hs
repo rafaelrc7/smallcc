@@ -102,7 +102,7 @@ translateProgram :: P.Program -> Program
 translateProgram (P.Program func) = Program $ translateFunction func
 
 translateFunction :: P.FunctionDefinition -> FunctionDefinition
-translateFunction P.Function { P.funcName = name, P.funcBody = body } =
+translateFunction (P.Function name body) =
      Function { funcIdentifier = name
               , funcBody = body' ++ [ Return (Const 0) ]
               }
@@ -112,9 +112,9 @@ translateFunction P.Function { P.funcName = name, P.funcBody = body } =
 class TackyGenerator a b | a -> b where
   translate :: a -> TackyGenerationMonad b
 
-instance TackyGenerator [P.BlockItem] () where
-  translate :: [P.BlockItem] -> TackyGenerationMonad ()
-  translate = mapM_ translate
+instance TackyGenerator P.Block () where
+  translate :: P.Block -> TackyGenerationMonad ()
+  translate (P.Block blockItens) = mapM_ translate blockItens
 
 instance TackyGenerator P.BlockItem () where
   translate :: P.BlockItem -> TackyGenerationMonad ()
@@ -128,6 +128,7 @@ instance TackyGenerator P.Statement () where
   translate (P.Expression expr) = void $ translate expr
   translate (P.Goto label) = tell [ Jump label ]
   translate (P.Label label) = tell [ Label label ]
+  translate (P.Compound block) = translate block
   translate (P.If cond conse Nothing) =
     do condVal <- translate cond
        endLabel <- newLabel (Just "end")

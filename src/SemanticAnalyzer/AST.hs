@@ -3,16 +3,16 @@
 
 module SemanticAnalyzer.AST where
 
-import           Parser.AST             (BlockItem (..), Declaration (..),
-                                         Exp (..),
-                                         FunctionDefinition (Function, funcBody, funcName),
+import           Parser.AST             (Block (Block), BlockItem (..),
+                                         Declaration (..), Exp (..),
+                                         FunctionDefinition (Function),
                                          Identifier, Program (..),
                                          Statement (..),
                                          UnaryOperator (UnaryAssignmentOperator))
 import           SemanticAnalyzer.Error (SemanticError (..))
 
 import           Control.Monad.Except   (Except, MonadError (..))
-import           Control.Monad.State    (StateT, get, put)
+import           Control.Monad.State    (StateT, get, modify, put)
 import           Data.Map               (Map)
 import qualified Data.Map               as M
 import           Data.Text              (Text)
@@ -97,24 +97,28 @@ class SemanticAnalyzer a where
 
 instance SemanticAnalyzer Program where
   resolve :: Program -> SemanticAnalyzerMonad Program
-  resolve (Program func) = do
-    env <- get
-    put $ env { envName = Just (funcName func) }
-    Program <$> resolve func
+  resolve (Program func) = Program <$> resolve func
 
   checkLabels :: Program -> SemanticAnalyzerMonad Program
   checkLabels (Program func) = Program <$> checkLabels func
 
 instance SemanticAnalyzer FunctionDefinition where
   resolve :: FunctionDefinition -> SemanticAnalyzerMonad FunctionDefinition
-  resolve func@Function { funcBody = body } = do
-    body' <- mapM resolve body
-    return $ func { funcBody = body' }
+  resolve (Function name body) =
+    do modify (\env -> env { envName = Just name })
+       Function name <$> resolve body
 
   checkLabels :: FunctionDefinition -> SemanticAnalyzerMonad FunctionDefinition
-  checkLabels func@Function { funcBody = body } = do
-    body' <- mapM checkLabels body
-    return $ func { funcBody = body' }
+  checkLabels (Function name body) =
+    do modify (\env -> env { envName = Just name })
+       Function name <$> checkLabels body
+
+instance SemanticAnalyzer Block where
+  resolve :: Block -> SemanticAnalyzerMonad Block
+  resolve (Block blockItens) = Block <$> mapM resolve blockItens
+
+  checkLabels :: Block -> SemanticAnalyzerMonad Block
+  checkLabels (Block blockItens) = Block <$> mapM checkLabels blockItens
 
 instance SemanticAnalyzer BlockItem where
   resolve :: BlockItem -> SemanticAnalyzerMonad BlockItem
@@ -132,6 +136,7 @@ instance SemanticAnalyzer Statement where
   resolve (If cond conseq altern) = If <$> resolve cond <*> resolve conseq <*>
     case altern of Just altern' -> Just <$> resolve altern'
                    Nothing      -> pure Nothing
+  resolve (Compound block) = Compound <$> resolve block
   resolve Null = pure Null
   resolve (Label label) = Label <$> newLabel label
   resolve g@(Goto _) = pure g
@@ -141,6 +146,7 @@ instance SemanticAnalyzer Statement where
   checkLabels (Return expr)     = Return <$> checkLabels expr
   checkLabels (Expression expr) = Expression <$> checkLabels expr
   checkLabels l@(Label _)       = pure l
+  checkLabels (Compound block)  = Compound <$> checkLabels block
   checkLabels Null              = pure Null
   checkLabels (If cond conse altern) = If <$> checkLabels cond <*> checkLabels conse <*>
     case altern of Just altern' -> Just <$> checkLabels altern'

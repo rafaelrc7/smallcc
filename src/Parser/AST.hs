@@ -14,18 +14,20 @@ type Identifier = Text
 newtype Program = Program FunctionDefinition
   deriving (Show)
 
-data FunctionDefinition = Function { funcName :: Identifier
-                                   , funcBody :: [BlockItem]
-                                   }
+data FunctionDefinition = Function Identifier Block
   deriving (Show)
 
 data BlockItem = Stmt Statement
                | Dec Declaration
   deriving (Show)
 
+newtype Block = Block [BlockItem]
+  deriving (Show)
+
 data Statement = Return Exp
                | Expression Exp
                | If Exp Statement (Maybe Statement)
+               | Compound Block
                | Goto Identifier
                | Label Identifier
                | Null
@@ -122,9 +124,11 @@ instance PrettyPrinter Program where
 
 instance PrettyPrinter FunctionDefinition where
   pretty :: FunctionDefinition -> Text
-  pretty (Function {funcBody=body, funcName=name}) = "Function '" <> name <> "'\n"
-                                          <> body'
-    where body' = T.concat $ map (identLines . pretty) body
+  pretty (Function name body) = "Function '" <> name <> "'\n" <> pretty body <> "\n"
+
+instance PrettyPrinter Block where
+  pretty :: Block -> Text
+  pretty (Block blockItens) = T.concat $ map (identLines . pretty) blockItens
 
 instance PrettyPrinter BlockItem where
   pretty :: BlockItem -> Text
@@ -139,6 +143,7 @@ instance PrettyPrinter Statement where
   pretty (Expression expr) = pretty expr <> ";\n"
   pretty (If cond expThen Nothing) = "if (" <> pretty cond <> ")\n" <> identLines (pretty expThen)
   pretty (If cond expThen (Just expElse)) = "if (" <> pretty cond <> ")\n" <> identLines (pretty expThen) <> "\nelse\n" <> identLines (pretty expElse)
+  pretty (Compound block) = "{\n" <> pretty block <> "\n}\n"
   pretty (Goto label) = "goto " <> pretty label <> ";\n"
   pretty (Label label) = pretty label <> ":\n"
   pretty Null = ";\n"

@@ -15,11 +15,12 @@ import qualified Lexer.Token          as TK
 import           Numeric.Natural      (Natural)
 import           Parser.AST           (AssignmentOperator (..),
                                        Associativity (LeftAssociative, RightAssociative),
-                                       BinaryOperator (..), BlockItem (..),
-                                       Constant (..), Declaration (..),
-                                       Exp (..), FunctionDefinition (..),
-                                       Identifier, Precedence (Precedence),
-                                       Program (..), Statement (..),
+                                       BinaryOperator (..), Block (Block),
+                                       BlockItem (..), Constant (..),
+                                       Declaration (..), Exp (..),
+                                       FunctionDefinition (..), Identifier,
+                                       Precedence (Precedence), Program (..),
+                                       Statement (..),
                                        UnaryAssignmentOperator (PostDecrement, PostIncrement, PreDecrement, PreIncrement),
                                        UnaryOperator (Complement, Negate, Not, UnaryAssignmentOperator),
                                        precedence)
@@ -54,20 +55,18 @@ instance Parser Program where
   parse :: ParserMonad Program
   parse = Program <$> parse <* expectEOF
 
--- <function> ::= "int" <identifier> "(" "void" ")" "{" {<block-item>} "}"
--- <block-item> ::= <statement> | <declaration>
+-- <function> ::= "int" <identifier> "(" "void" ")" <block>
 instance Parser FunctionDefinition where
   parse :: ParserMonad FunctionDefinition
   parse = do expect (TK.Keyword TK.Int)
              name <- parse
              mapM_ expect [ TK.OpenParens, TK.Keyword TK.Void, TK.CloseParens ]
-             bis <- parseBlock
-             return Function { funcName = name
-                             , funcBody = bis
-                             }
+             Function name <$> parse
 
-parseBlock :: ParserMonad [BlockItem]
-parseBlock = expect TK.OpenBrace *> many parse <* expect TK.CloseBrace
+-- <block> ::= "{" {<block-item>} "}"
+instance Parser Block where
+  parse :: ParserMonad Block
+  parse = expect TK.OpenBrace *> (Block <$> many parse) <* expect TK.CloseBrace
 
 -- <block_item> ::= <statement> | <declaration>
 instance Parser BlockItem where
@@ -75,7 +74,7 @@ instance Parser BlockItem where
   parse = Dec  <$> parse
       <|> Stmt <$> parse
 
--- <statement> ::= "return" <exp> ";" | <exp> ";" | "if" "(" <exp> ")" <statement> ["else" <statement>] | ";"
+-- <statement> ::= "return" <exp> ";" | <exp> ";" | "if" "(" <exp> ")" <statement> ["else" <statement>] | "goto" <identifier> | <identifier> ":" | <block> | ";"
 instance Parser Statement where
   parse :: ParserMonad Statement
   parse = expect TK.Semicolon $> Null
@@ -83,6 +82,7 @@ instance Parser Statement where
       <|> expect (TK.Keyword TK.If) *> (If <$> (expect TK.OpenParens *> parse <* expect TK.CloseParens) <*> parse <*> optional (expect (TK.Keyword TK.Else) *> parse))
       <|> expect (TK.Keyword TK.Goto) *> (Goto <$> parse) <* expect TK.Semicolon
       <|> (Label <$> parse) <* expect TK.Colon
+      <|> Compound <$> parse
       <|> Expression <$> parse <* expect TK.Semicolon
 
 -- <declaration> ::= "int" <identifier> ["=" <exp>] ";"
