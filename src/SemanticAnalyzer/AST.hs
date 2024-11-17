@@ -12,10 +12,10 @@ import           Parser.AST             (Block (Block), BlockItem (..),
 import           SemanticAnalyzer.Error (SemanticError (..))
 
 import           Control.Monad.Except   (Except, MonadError (..))
-import           Control.Monad.State    (StateT, get, modify, put)
+import           Control.Monad.State    (StateT, gets, modify)
 import           Data.Map               (Map)
 import qualified Data.Map               as M
-import           Data.Text              (Text)
+import           Data.Maybe             (fromMaybe)
 import qualified Data.Text              as T
 import           Numeric.Natural        (Natural)
 
@@ -35,58 +35,39 @@ emptyEnvironment = Environment { varEnv   = (0, M.empty)
                                , envName  = Nothing
                                }
 
-makeUniqueIdentifier :: Identifier -> SemanticAnalyzerMonad Natural -> Identifier -> SemanticAnalyzerMonad Identifier
-makeUniqueIdentifier base nextNum identifier = nextNum >>= \idCount ->
-  return $ base <> "." <> identifier <> "." <> T.pack (show idCount)
-
-makeUniqueVar :: Identifier -> SemanticAnalyzerMonad Identifier
-makeUniqueVar = makeUniqueIdentifier "var" nextVar
-  where nextVar :: SemanticAnalyzerMonad Natural
-        nextVar = get >>= \env@Environment { varEnv = (n, m) } ->
-                    let n' = succ n in put (env { varEnv = (n', m) }) >> return n'
-
-makeUniqueLabel :: Identifier -> SemanticAnalyzerMonad Identifier
-makeUniqueLabel label = get >>= \env@Environment { labelEnv = (n, m), envName = envName' } ->
-    let nextLabel :: SemanticAnalyzerMonad Natural
-        nextLabel = put (env { labelEnv = (n', m) }) >> return n'
-          where n' = succ n
-
-        getBase :: Text
-        getBase = case envName' of Just name' -> ".L" <> name'
-                                   Nothing    -> ".L"
-    in makeUniqueIdentifier getBase nextLabel label
-
-newIdentifier :: (Identifier -> SemanticAnalyzerMonad Identifier)
-  -> (Environment -> IdentifierEnv)
-  -> (Environment -> IdentifierEnv -> Environment)
-  -> Identifier
-  -> SemanticAnalyzerMonad Identifier
-newIdentifier makeUnique getFromEnv putToEnv identifier =
-  do env <- get
-     let (n, m) = getFromEnv env
-     if identifier `M.member` m then
-       throwError $ DuplicateIdentifierDeclaration identifier
-     else do
-       identifier' <- makeUnique identifier
-       put $ putToEnv env (n, M.insert identifier identifier' m)
-       return identifier'
-
 newVar :: Identifier -> SemanticAnalyzerMonad Identifier
-newVar = newIdentifier makeUniqueVar varEnv (\env varEnv' -> env {varEnv = varEnv'} )
+newVar var =
+  do (n, m) <- gets varEnv
+     if var `M.member` m then
+       throwError $ DuplicateIdentifierDeclaration var
+     else do
+       let n' = succ n
+       let var' = "var." <> var <> "." <> T.pack (show n')
+       let m' = M.insert var var' m
+       modify (\env -> env { varEnv = (n', m') })
+       return var'
 
 newLabel :: Identifier -> SemanticAnalyzerMonad Identifier
-newLabel = newIdentifier makeUniqueLabel labelEnv (\env labelEnv' -> env {labelEnv = labelEnv'} )
+newLabel label =
+  do (n, m) <- gets labelEnv
+     funcName <- gets envName
+     if label `M.member` m then
+       throwError $ DuplicateIdentifierDeclaration label
+     else do
+       let n' = succ n
+       let label' = ".L" <> fromMaybe "" funcName <> "." <> label <> "." <> T.pack (show n')
+       let m' = M.insert label label' m
+       modify (\env -> env { labelEnv = (n', m') })
+       return label'
 
 getVar :: Identifier -> SemanticAnalyzerMonad Identifier
-getVar var = do env <- get
-                let (_, m) = varEnv env
+getVar var = do (_, m) <- gets varEnv
                 case M.lookup var m of
                   Nothing   -> throwError $ UndefinedIdentifierUse var
                   Just var' -> return var'
 
 getLabel :: Identifier -> SemanticAnalyzerMonad Identifier
-getLabel label = do env <- get
-                    let (_, m) = labelEnv env
+getLabel label = do (_, m) <- gets labelEnv
                     case M.lookup label m of
                       Nothing     -> throwError $ UndefinedIdentifierUse label
                       Just label' -> return label'
@@ -160,7 +141,7 @@ instance SemanticAnalyzer Declaration where
       Nothing              -> pure Nothing
 
   checkLabels :: Declaration -> SemanticAnalyzerMonad Declaration
-  checkLabels (Declaration var initialisation) = Declaration <$> newVar var <*>
+  checkLabels (Declaration var initialisation) = Declaration var <$>
     case initialisation of
       Just initialisation' -> Just <$> checkLabels initialisation'
       Nothing              -> pure Nothing
@@ -179,7 +160,7 @@ instance SemanticAnalyzer Exp where
 
   checkLabels :: Exp -> SemanticAnalyzerMonad Exp
   checkLabels e@(Constant _) = pure e
-  checkLabels (Var var)      = Var <$> getVar var
+  checkLabels (Var var)      = pure $ Var var
   checkLabels (Unary op@(UnaryAssignmentOperator _) var@(Var _)) = Unary op <$> checkLabels var
   checkLabels (Unary    (UnaryAssignmentOperator _) e)           = throwError $ InvalidLHS e
   checkLabels (Unary op                             e)           = Unary op <$> checkLabels e
