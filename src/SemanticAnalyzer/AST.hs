@@ -20,36 +20,45 @@ import qualified Data.Text              as T
 import           Numeric.Natural        (Natural)
 
 type IdentifierMap = Map Identifier Identifier
-type IdentifierEnv = (Natural, IdentifierMap)
+data IdentifierEnv = IdentifierEnv { identifierCount :: Natural
+                                   , identifierMap   :: IdentifierMap
+                                   }
+
+emptyIdentifierEnv :: IdentifierEnv
+emptyIdentifierEnv = IdentifierEnv { identifierCount = 0
+                                   , identifierMap = M.empty
+                                   }
 
 data Environment = Environment { varEnv   :: IdentifierEnv
                                , labelEnv :: IdentifierEnv
                                , envName  :: Maybe Identifier
                                }
 
-type SemanticAnalyzerMonad a = StateT Environment (Except SemanticError) a
-
 emptyEnvironment :: Environment
-emptyEnvironment = Environment { varEnv   = (0, M.empty)
-                               , labelEnv = (0, M.empty)
+emptyEnvironment = Environment { varEnv   = emptyIdentifierEnv
+                               , labelEnv = emptyIdentifierEnv
                                , envName  = Nothing
                                }
 
+type SemanticAnalyzerMonad a = StateT Environment (Except SemanticError) a
+
 newVar :: Identifier -> SemanticAnalyzerMonad Identifier
 newVar var =
-  do (n, m) <- gets varEnv
+  do n <- gets $ identifierCount . varEnv
+     m <- gets $ identifierMap . varEnv
      if var `M.member` m then
        throwError $ DuplicateIdentifierDeclaration var
      else do
        let n' = succ n
        let var' = "var." <> var <> "." <> T.pack (show n')
        let m' = M.insert var var' m
-       modify (\env -> env { varEnv = (n', m') })
+       modify (\env -> env { varEnv = IdentifierEnv { identifierCount = n', identifierMap = m' } })
        return var'
 
 newLabel :: Identifier -> SemanticAnalyzerMonad Identifier
 newLabel label =
-  do (n, m) <- gets labelEnv
+  do n <- gets $ identifierCount . labelEnv
+     m <- gets $ identifierMap . labelEnv
      funcName <- gets envName
      if label `M.member` m then
        throwError $ DuplicateIdentifierDeclaration label
@@ -57,17 +66,17 @@ newLabel label =
        let n' = succ n
        let label' = ".L" <> fromMaybe "" funcName <> "." <> label <> "." <> T.pack (show n')
        let m' = M.insert label label' m
-       modify (\env -> env { labelEnv = (n', m') })
+       modify (\env -> env { labelEnv = IdentifierEnv { identifierCount = n', identifierMap = m' } })
        return label'
 
 getVar :: Identifier -> SemanticAnalyzerMonad Identifier
-getVar var = do (_, m) <- gets varEnv
+getVar var = do m <- gets $ identifierMap . varEnv
                 case M.lookup var m of
                   Nothing   -> throwError $ UndefinedIdentifierUse var
                   Just var' -> return var'
 
 getLabel :: Identifier -> SemanticAnalyzerMonad Identifier
-getLabel label = do (_, m) <- gets labelEnv
+getLabel label = do m <- gets $ identifierMap . labelEnv
                     case M.lookup label m of
                       Nothing     -> throwError $ UndefinedIdentifierUse label
                       Just label' -> return label'
