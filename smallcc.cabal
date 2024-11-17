@@ -79,8 +79,8 @@ library
     Lexer.Scanner
     Lexer.Token
     Parser.AST
-    Parser.ParserMonad
     Parser.Error
+    Parser.ParserMonad
     SemanticAnalyzer.AST
     SemanticAnalyzer.Error
     Tacky.AST
