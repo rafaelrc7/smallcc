@@ -74,19 +74,33 @@ data Keyword = Int
              | If
              | Else
              | Goto
+             | Do
+             | While
+             | For
+             | Break
+             | Continue
+             | Switch
+             | Case
   deriving (Show, Eq)
 
 tokenType :: Token -> TokenType
 tokenType (Token t _ _) = t
 
 scanKeyword :: Identifier -> Maybe Keyword
-scanKeyword "int"    = Just Int
-scanKeyword "void"   = Just Void
-scanKeyword "return" = Just Return
-scanKeyword "if"     = Just If
-scanKeyword "else"   = Just Else
-scanKeyword "goto"   = Just Goto
-scanKeyword _        = Nothing
+scanKeyword "int"      = Just Int
+scanKeyword "void"     = Just Void
+scanKeyword "return"   = Just Return
+scanKeyword "if"       = Just If
+scanKeyword "else"     = Just Else
+scanKeyword "goto"     = Just Goto
+scanKeyword "do"       = Just Do
+scanKeyword "while"    = Just While
+scanKeyword "for"      = Just For
+scanKeyword "break"    = Just Break
+scanKeyword "continue" = Just Continue
+scanKeyword "switch"   = Just Switch
+scanKeyword "case"     = Just Case
+scanKeyword _          = Nothing
 
 instance PrettyPrinter TokenType where
   pretty :: TokenType -> Text
@@ -137,10 +151,17 @@ instance PrettyPrinter TokenType where
 
 instance PrettyPrinter Keyword where
   pretty :: Keyword -> Text
-  pretty Int    = "int"
-  pretty Void   = "void"
-  pretty Return = "return"
-  pretty If     = "if"
-  pretty Else   = "else"
-  pretty Goto   = "goto"
+  pretty Int      = "int"
+  pretty Void     = "void"
+  pretty Return   = "return"
+  pretty If       = "if"
+  pretty Else     = "else"
+  pretty Goto     = "goto"
+  pretty Do       = "do"
+  pretty While    = "while"
+  pretty For      = "for"
+  pretty Break    = "break"
+  pretty Continue = "continue"
+  pretty Switch   = "switch"
+  pretty Case     = "case"
 
