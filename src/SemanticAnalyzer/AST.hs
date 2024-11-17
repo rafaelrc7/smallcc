@@ -20,63 +20,64 @@ import qualified Data.Text              as T
 import           Numeric.Natural        (Natural)
 
 type IdentifierMap = Map Identifier Identifier
-data IdentifierEnv = IdentifierEnv { identifierCount :: Natural
-                                   , identifierMap   :: IdentifierMap
-                                   }
 
-emptyIdentifierEnv :: IdentifierEnv
-emptyIdentifierEnv = IdentifierEnv { identifierCount = 0
-                                   , identifierMap = M.empty
-                                   }
+emptyIdentifierMap :: IdentifierMap
+emptyIdentifierMap = M.empty
 
-data Environment = Environment { varEnv   :: IdentifierEnv
-                               , labelEnv :: IdentifierEnv
-                               , envName  :: Maybe Identifier
+data Environment = Environment { envFunctionName       :: Maybe Identifier
+                               , envVarCounter         :: Natural
+                               , envCurrentScopeVarEnv :: IdentifierMap
+                               , envUpperScopesVarEnvs :: [IdentifierMap]
+                               , envLabelCounter       :: Natural
+                               , envLabelEnv           :: IdentifierMap
                                }
 
 emptyEnvironment :: Environment
-emptyEnvironment = Environment { varEnv   = emptyIdentifierEnv
-                               , labelEnv = emptyIdentifierEnv
-                               , envName  = Nothing
+emptyEnvironment = Environment { envFunctionName       = Nothing
+                               , envVarCounter         = 0
+                               , envCurrentScopeVarEnv = emptyIdentifierMap
+                               , envUpperScopesVarEnvs = []
+                               , envLabelCounter       = 0
+                               , envLabelEnv           = emptyIdentifierMap
                                }
 
 type SemanticAnalyzerMonad a = StateT Environment (Except SemanticError) a
 
 newVar :: Identifier -> SemanticAnalyzerMonad Identifier
 newVar var =
-  do n <- gets $ identifierCount . varEnv
-     m <- gets $ identifierMap . varEnv
-     if var `M.member` m then
+  do varCounter <- gets envVarCounter
+     varEnv     <- gets envCurrentScopeVarEnv
+     if var `M.member` varEnv then
        throwError $ DuplicateIdentifierDeclaration var
      else do
-       let n' = succ n
-       let var' = "var." <> var <> "." <> T.pack (show n')
-       let m' = M.insert var var' m
-       modify (\env -> env { varEnv = IdentifierEnv { identifierCount = n', identifierMap = m' } })
+       let varCounter' = succ varCounter
+       let var' = "var." <> var <> "." <> T.pack (show varCounter')
+       let varEnv' = M.insert var var' varEnv
+       modify (\env -> env { envCurrentScopeVarEnv = varEnv', envVarCounter = varCounter' })
        return var'
 
 newLabel :: Identifier -> SemanticAnalyzerMonad Identifier
 newLabel label =
-  do n <- gets $ identifierCount . labelEnv
-     m <- gets $ identifierMap . labelEnv
-     funcName <- gets envName
-     if label `M.member` m then
+  do functionName <- gets envFunctionName
+     labelCounter <- gets envLabelCounter
+     labelEnv     <- gets envLabelEnv
+     if label `M.member` labelEnv then
        throwError $ DuplicateIdentifierDeclaration label
      else do
-       let n' = succ n
-       let label' = ".L" <> fromMaybe "" funcName <> "." <> label <> "." <> T.pack (show n')
-       let m' = M.insert label label' m
-       modify (\env -> env { labelEnv = IdentifierEnv { identifierCount = n', identifierMap = m' } })
+       let labelCounter' = succ labelCounter
+       let label' = ".L" <> fromMaybe "" functionName <> "." <> label <> "." <> T.pack (show labelCounter')
+       let labelEnv' = M.insert label label' labelEnv
+       modify (\env -> env { envLabelEnv = labelEnv', envLabelCounter = labelCounter' })
        return label'
 
 getVar :: Identifier -> SemanticAnalyzerMonad Identifier
-getVar var = do m <- gets $ identifierMap . varEnv
+getVar var = do m <- gets envCurrentScopeVarEnv
                 case M.lookup var m of
                   Nothing   -> throwError $ UndefinedIdentifierUse var
                   Just var' -> return var'
 
 getLabel :: Identifier -> SemanticAnalyzerMonad Identifier
-getLabel label = do m <- gets $ identifierMap . labelEnv
+getLabel label = do m <- gets envLabelEnv
                     case M.lookup label m of
                       Nothing     -> throwError $ UndefinedIdentifierUse label
                       Just label' -> return label'
@@ -95,12 +96,12 @@ instance SemanticAnalyzer Program where
 instance SemanticAnalyzer FunctionDefinition where
   resolve :: FunctionDefinition -> SemanticAnalyzerMonad FunctionDefinition
   resolve (Function name body) =
-    do modify (\env -> env { envName = Just name })
+    do modify (\env -> env { envFunctionName = Just name })
        Function name <$> resolve body
 
   checkLabels :: FunctionDefinition -> SemanticAnalyzerMonad FunctionDefinition
   checkLabels (Function name body) =
-    do modify (\env -> env { envName = Just name })
+    do modify (\env -> env { envFunctionName = Just name })
        Function name <$> checkLabels body
 
 instance SemanticAnalyzer Block where
