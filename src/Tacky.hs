@@ -4,5 +4,5 @@ import qualified Parser.AST as P
 import           Tacky.AST
 
 translateTacky :: P.Program -> Program
-translateTacky = snd . translateProgram emptyState
+translateTacky = translateProgram
 

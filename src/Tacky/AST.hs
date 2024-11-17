@@ -1,24 +1,21 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE FlexibleInstances      #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE InstanceSigs           #-}
+{-# LANGUAGE OverloadedStrings      #-}
 
 module Tacky.AST where
 
-import           Data.List  (foldl')
-import           Data.Maybe (fromMaybe)
-import           Data.Text  (Text)
-import qualified Data.Text  as T
+import           Data.Maybe           (fromMaybe)
+import           Data.Text            (Text)
+import qualified Data.Text            as T
 
-import qualified Parser.AST as P
-
-data State = State { stateLastTmp   :: Int
-                   , stateLastLabel :: Int
-                   }
-
-emptyState :: State
-emptyState = State { stateLastTmp = 0
-                   , stateLastLabel = 0
-                   }
-
-type Identifier = Text
+import           Control.Monad        (void)
+import           Control.Monad.State  (StateT, evalStateT, gets, modify)
+import           Control.Monad.Writer (MonadWriter (tell), Writer, runWriter)
+import           Data.Functor         (($>))
+import           Numeric.Natural      (Natural)
+import           Parser.AST           (Identifier)
+import qualified Parser.AST           as P
 
 newtype Program = Program FunctionDefinition
   deriving (Show)
@@ -73,269 +70,242 @@ data Val = Const Int
          | Var Identifier
   deriving (Show)
 
-translateProgram :: State -> P.Program -> (State, Program)
-translateProgram st (P.Program func) = Program <$> translateFunction st func
-
-translateFunction :: State -> P.FunctionDefinition -> (State, FunctionDefinition)
-translateFunction st P.Function {P.funcName=name, P.funcBody=body} =
-  ( st'''
-  , Function { funcIdentifier=name
-             , funcBody = body'' ++ [ Return $ Const 0 ]
-             }
-  )
-  where (body'', st''') = foldl' (\(body', st') i ->
-                                  let (st'', ins) = translateBlockItem st' i
-                                  in (body' ++ ins, st''))
-                                ([], st)
-                                body
-
-translateBlockItem :: State -> P.BlockItem -> (State, [Instruction])
-translateBlockItem st (P.Stmt stmt) = translateStatement st stmt
-translateBlockItem st (P.Dec  decl) = translateDeclaration st decl
-
-translateStatement :: State -> P.Statement -> (State, [Instruction])
-translateStatement st P.Null = (st, [])
-translateStatement st (P.Return expr) = (st', expInstructions ++ [Return expVal])
-  where (expInstructions, expVal, st') = translateExp st expr
-translateStatement st (P.Expression expr) = (st', exprInstructions)
-  where (exprInstructions, _, st') = translateExp st expr
-translateStatement st (P.If cond stmt1 stmt2) = translateIf st cond stmt1 stmt2
-translateStatement st (P.Goto label) = (st, [ Jump label ])
-translateStatement st (P.Label label) = (st, [ Label label ])
-
-translateDeclaration :: State -> P.Declaration -> (State, [Instruction])
-translateDeclaration st (P.Declaration _ Nothing) = (st, [])
-translateDeclaration st (P.Declaration lhs (Just rhs)) =
-    ( st'
-    , rhsInstrucitons
-        ++ [ Copy { copySrc = rhs'
-                  , copyDst = Var lhs
-                  }
-           ]
-    )
-  where (rhsInstrucitons, rhs', st') = translateExp st rhs
-
-translateIf :: State -> P.Exp -> P.Statement -> Maybe P.Statement -> (State, [Instruction])
-translateIf st cond thenStmt Nothing =
-  (st'''
-  , condIns
-      ++ [ JumpIfZero cond' endLabel ]
-      ++ thenIns
-      ++ [ Label endLabel ]
-  )
-  where (endLabel, st') = newLabel (Just "end") st
-        (condIns, cond', st'') = translateExp st' cond
-        (st''', thenIns) = translateStatement st'' thenStmt
-translateIf st cond thenStmt (Just elseStmt) =
-  (st'''''
-  , condIns
-      ++ [ JumpIfZero cond' elseLabel ]
-      ++ thenIns
-      ++ [ Jump endLabel
-         , Label elseLabel
-         ]
-      ++ elseIns
-      ++ [ Label endLabel ]
-  )
-  where (endLabel, st')   = newLabel (Just "end") st
-        (elseLabel, st'') = newLabel (Just "else") st'
-        (condIns, cond', st''') = translateExp st'' cond
-        (st'''', thenIns) = translateStatement st''' thenStmt
-        (st''''', elseIns) = translateStatement st'''' elseStmt
-
-translateExp :: State -> P.Exp -> ([Instruction], Val, State)
-translateExp s (P.Constant (P.CInt val)) = ([], Const val, s)
-translateExp s (P.Var var) = ([], Var var, s)
-translateExp s (P.Conditional cond expr1 expr2) = translateConditional s cond expr1 expr2
-
-translateExp s (P.Unary  P.Complement      expr)                         = translateUnaryOp        s     Complement     expr
-translateExp s (P.Unary  P.Negate          expr)                         = translateUnaryOp        s     Negate         expr
-translateExp s (P.Unary  P.Not             expr)                         = translateUnaryOp        s     Not            expr
-translateExp s (P.Unary (P.UnaryAssignmentOperator P.PreDecrement)  var) = translatePreAssignment  s var Subtract
-translateExp s (P.Unary (P.UnaryAssignmentOperator P.PreIncrement)  var) = translatePreAssignment  s var Add
-translateExp s (P.Unary (P.UnaryAssignmentOperator P.PostDecrement) var) = translatePostAssignment s var Subtract
-translateExp s (P.Unary (P.UnaryAssignmentOperator P.PostIncrement) var) = translatePostAssignment s var Add
-
-translateExp s (P.Binary P.And             expr1 expr2) = translateAnd      s                expr1 expr2
-translateExp s (P.Binary P.Or              expr1 expr2) = translateOr       s                expr1 expr2
-translateExp s (P.Binary P.BitOr           expr1 expr2) = translateBinaryOp s BitOr          expr1 expr2
-translateExp s (P.Binary P.BitXOR          expr1 expr2) = translateBinaryOp s BitXOR         expr1 expr2
-translateExp s (P.Binary P.BitAnd          expr1 expr2) = translateBinaryOp s BitAnd         expr1 expr2
-translateExp s (P.Binary P.EqualsTo        expr1 expr2) = translateBinaryOp s EqualsTo       expr1 expr2
-translateExp s (P.Binary P.NotEqualsTo     expr1 expr2) = translateBinaryOp s NotEqualsTo    expr1 expr2
-translateExp s (P.Binary P.Less            expr1 expr2) = translateBinaryOp s Less           expr1 expr2
-translateExp s (P.Binary P.LessOrEqual     expr1 expr2) = translateBinaryOp s LessOrEqual    expr1 expr2
-translateExp s (P.Binary P.Greater         expr1 expr2) = translateBinaryOp s Greater        expr1 expr2
-translateExp s (P.Binary P.GreaterOrEqual  expr1 expr2) = translateBinaryOp s GreaterOrEqual expr1 expr2
-translateExp s (P.Binary P.BitShiftLeft    expr1 expr2) = translateBinaryOp s BitShiftLeft   expr1 expr2
-translateExp s (P.Binary P.BitShiftRight   expr1 expr2) = translateBinaryOp s BitShiftRight  expr1 expr2
-translateExp s (P.Binary P.Add             expr1 expr2) = translateBinaryOp s Add            expr1 expr2
-translateExp s (P.Binary P.Subtract        expr1 expr2) = translateBinaryOp s Subtract       expr1 expr2
-translateExp s (P.Binary P.Multiply        expr1 expr2) = translateBinaryOp s Multiply       expr1 expr2
-translateExp s (P.Binary P.Divide          expr1 expr2) = translateBinaryOp s Divide         expr1 expr2
-translateExp s (P.Binary P.Remainder       expr1 expr2) = translateBinaryOp s Remainder      expr1 expr2
-
-translateExp s (P.Assignment lhs P.AddAssign rhs)           = translateOpAssignment s lhs rhs Add
-translateExp s (P.Assignment lhs P.SubAssign rhs)           = translateOpAssignment s lhs rhs Subtract
-translateExp s (P.Assignment lhs P.MulAssign rhs)           = translateOpAssignment s lhs rhs Multiply
-translateExp s (P.Assignment lhs P.DivAssign rhs)           = translateOpAssignment s lhs rhs Divide
-translateExp s (P.Assignment lhs P.RemAssign rhs)           = translateOpAssignment s lhs rhs Remainder
-translateExp s (P.Assignment lhs P.BitAndAssign rhs)        = translateOpAssignment s lhs rhs BitAnd
-translateExp s (P.Assignment lhs P.BitOrAssign  rhs)        = translateOpAssignment s lhs rhs BitOr
-translateExp s (P.Assignment lhs P.BitXORAssign rhs)        = translateOpAssignment s lhs rhs BitXOR
-translateExp s (P.Assignment lhs P.BitShiftLeftAssign rhs)  = translateOpAssignment s lhs rhs BitShiftLeft
-translateExp s (P.Assignment lhs P.BitShiftRightAssign rhs) = translateOpAssignment s lhs rhs BitShiftRight
-
-translateExp s (P.Assignment lhs P.Assign rhs) =
-  (lhsInstructions
-    ++ rhsInstrucitons
-    ++ [ Copy { copySrc = rhs'
-              , copyDst = lhs'
-              }
-       ]
-  , lhs'
-  , s'')
-  where (lhsInstructions, lhs', s') = translateExp s lhs
-        (rhsInstrucitons, rhs', s'') = translateExp s' rhs
-
-translateOpAssignment :: State -> P.Exp -> P.Exp -> BinaryOperator -> ([Instruction], Val, State)
-translateOpAssignment s lhs rhs op =
-  ( instructions
-  , lhs'
-  , s''' )
-  where (lhsInstructions, lhs', s') = translateExp s lhs
-        (rhsInstructions, rhs', s'') = translateExp s' rhs
-        (tmp, s''') = newTmpVar s''
-        opInstruction = Binary { binaryOperator = op
-                               , binarySrcs = (lhs', rhs')
-                               , binaryDst = tmp
+data Environment = Environment { envLastVar   :: Natural
+                               , envLastLabel :: Natural
                                }
-        instructions = lhsInstructions
-                        ++ rhsInstructions
-                        ++ [ opInstruction
-                           , Copy { copySrc = tmp
-                                  , copyDst = lhs'
-                                  }
-                           ]
 
-translatePreAssignment :: State -> P.Exp -> BinaryOperator -> ([Instruction], Val, State)
-translatePreAssignment s var op =
-  ( varInstructions
-      ++ [ Binary { binaryOperator = op
-                  , binarySrcs = (var', Const 1)
-                  , binaryDst = var'}
-         ]
-  , var'
-  , s'
-  )
-  where (varInstructions, var', s') = translateExp s var
+emptyEnv :: Environment
+emptyEnv = Environment { envLastVar = 0, envLastLabel = 0 }
 
-translatePostAssignment :: State -> P.Exp -> BinaryOperator -> ([Instruction], Val, State)
-translatePostAssignment s var op =
-  ( varInstructions
-      ++ [ Copy { copySrc = var'
-                , copyDst = tmp
-                }
-         , Binary { binaryOperator = op
-                  , binarySrcs = (var', Const 1)
-                  , binaryDst = var'}
-         ]
-  , tmp
-  , s''
-  )
-  where (varInstructions, var', s') = translateExp s var
-        (tmp, s'') = newTmpVar s'
+type TackyGenerationMonad a = StateT Environment (Writer [Instruction]) a
 
-translateBinaryOp :: State -> BinaryOperator -> P.Exp -> P.Exp -> ([Instruction], Val, State)
-translateBinaryOp st op expr1 expr2 = (instructions, dst, st''')
-  where (exprlInstructions, srcl, st') = translateExp st expr1
-        (exprrInstructions, srcr, st'') = translateExp st' expr2
-        (dst, st''') = newTmpVar st''
-        instruction = Binary {binaryOperator=op, binarySrcs=(srcl, srcr), binaryDst=dst}
-        instructions = exprlInstructions ++ exprrInstructions ++ [instruction]
+newVar :: Maybe Text -> TackyGenerationMonad Val
+newVar caption = gets envLastVar >>= \lastVar ->
+  let currVar = succ lastVar
+      currVarText = T.pack $ show currVar
+      var = fromMaybe "tmp" caption <> "." <> currVarText
+  in modify (\s -> s { envLastVar = currVar }) $> Var var
 
-translateUnaryOp :: State -> UnaryOperator -> P.Exp -> ([Instruction], Val, State)
-translateUnaryOp s op expr = (instructions, dst, s'')
-  where (exprInstructions, src, s') = translateExp s expr
-        (dst, s'') = newTmpVar s'
-        instruction = Unary {unaryOperator=op, unarySrc=src, unaryDst=dst}
-        instructions = exprInstructions ++ [instruction]
-
-translateOr :: State -> P.Exp -> P.Exp -> ([Instruction], Val, State)
-translateOr s expr1 expr2 = (instructions, resultVar, s''''')
-  where (expr1Instructions, val1, s') = translateExp s expr1
-        (expr2Instructions, val2, s'') = translateExp s' expr2
-        (trueLabel, s''') = newLabel (Just "OrTrue") s''
-        (endLabel, s'''') = newLabel (Just "OrEnd") s'''
-        (resultVar, s''''') = newVar (Just "OrResult") s''''
-        instructions = expr1Instructions
-                    ++ [ JumpIfNotZero val1 trueLabel ]
-                    ++ expr2Instructions
-                    ++ [ JumpIfNotZero val2 trueLabel
-                       , Copy {copySrc=Const 0, copyDst=resultVar}
-                       , Jump endLabel
-                       , Label trueLabel
-                       , Copy {copySrc=Const 1, copyDst=resultVar}
-                       , Label endLabel
-                       ]
-
-translateAnd :: State -> P.Exp -> P.Exp -> ([Instruction], Val, State)
-translateAnd s expr1 expr2 = (instructions, resultVar, s''''')
-  where (expr1Instructions, val1, s') = translateExp s expr1
-        (expr2Instructions, val2, s'') = translateExp s' expr2
-        (falseLabel, s''') = newLabel (Just "AndFalse") s''
-        (endLabel, s'''') = newLabel (Just "AndEnd") s'''
-        (resultVar, s''''') = newVar (Just "AndResult") s''''
-        instructions = expr1Instructions
-                    ++ [ JumpIfZero val1 falseLabel ]
-                    ++ expr2Instructions
-                    ++ [ JumpIfZero val2 falseLabel
-                       , Copy {copySrc=Const 1, copyDst=resultVar}
-                       , Jump endLabel
-                       , Label falseLabel
-                       , Copy {copySrc=Const 0, copyDst=resultVar}
-                       , Label endLabel
-                       ]
-
-translateConditional :: State -> P.Exp -> P.Exp -> P.Exp -> ([Instruction], Val, State)
-translateConditional st cond expr1 expr2 =
-  ( condIns
-      ++ [ JumpIfZero cond' expr2Label ]
-      ++ expr1Ins
-      ++ copyToResult expr1'
-      ++ [ Jump endLabel
-         , Label expr2Label
-         ]
-      ++ expr2Ins
-      ++ copyToResult expr2'
-      ++ [ Label endLabel ]
-  , result
-  , st''''''
-  )
-  where (expr2Label, st') = newLabel (Just "expr2") st
-        (endLabel, st'') = newLabel (Just "end") st'
-        (result, st''') = newTmpVar st''
-        (condIns, cond', st'''') = translateExp st''' cond
-        (expr1Ins, expr1', st''''') = translateExp st'''' expr1
-        (expr2Ins, expr2', st'''''') = translateExp st''''' expr2
-        copyToResult v =  [ Copy { copySrc = v
-                                 , copyDst = result
-                                 }
-                          ]
-
-newVar :: Maybe Text -> State -> (Val, State)
-newVar label state@State{ stateLastTmp = lastTmp } = (Var newTmpLabel, state{ stateLastTmp = newTmp })
-  where varLabel = T.snoc (fromMaybe "tmp" label) '.'
-        newTmp = lastTmp + 1
-        newTmpLabel = varLabel <> T.pack (show newTmp)
-
-newTmpVar :: State -> (Val, State)
+newTmpVar :: TackyGenerationMonad Val
 newTmpVar = newVar Nothing
 
-newLabel :: Maybe Text -> State -> (Identifier, State)
-newLabel caption state = (label, state{ stateLastLabel = labelNumber })
-  where labelNumber = stateLastLabel state + 1
-        labelNumberText = T.pack $ show labelNumber
-        label = case caption of Nothing -> labelNumberText
-                                Just labelCaption -> labelCaption <> labelNumberText
+newLabel :: Maybe Text -> TackyGenerationMonad Text
+newLabel caption = gets envLastLabel >>= \lastLabel ->
+  let currLabel = succ lastLabel
+      currLabelText = T.pack $ show currLabel
+      label = case caption of
+                Nothing       -> "." <> currLabelText
+                Just caption' -> caption' <> "." <> currLabelText
+  in modify (\s -> s { envLastLabel = currLabel }) $> label
+
+translateProgram :: P.Program -> Program
+translateProgram (P.Program func) = Program $ translateFunction func
+
+translateFunction :: P.FunctionDefinition -> FunctionDefinition
+translateFunction P.Function { P.funcName = name, P.funcBody = body } =
+     Function { funcIdentifier = name
+              , funcBody = body' ++ [ Return (Const 0) ]
+              }
+   where env = emptyEnv
+         body' = snd . runWriter $ evalStateT (translate body) env
+
+class TackyGenerator a b | a -> b where
+  translate :: a -> TackyGenerationMonad b
+
+instance TackyGenerator [P.BlockItem] () where
+  translate :: [P.BlockItem] -> TackyGenerationMonad ()
+  translate = mapM_ translate
+
+instance TackyGenerator P.BlockItem () where
+  translate :: P.BlockItem -> TackyGenerationMonad ()
+  translate (P.Stmt stmt) = translate stmt
+  translate (P.Dec  decl) = translate decl
+
+instance TackyGenerator P.Statement () where
+  translate :: P.Statement -> TackyGenerationMonad ()
+  translate P.Null          = pure ()
+  translate (P.Return expr) = translate expr >>= \v -> tell [ Return v ]
+  translate (P.Expression expr) = void $ translate expr
+  translate (P.Goto label) = tell [ Jump label ]
+  translate (P.Label label) = tell [ Label label ]
+  translate (P.If cond conse Nothing) =
+    do condVal <- translate cond
+       endLabel <- newLabel (Just "end")
+       tell [ JumpIfZero condVal endLabel ]
+       translate conse
+       tell [ Label endLabel ]
+  translate (P.If cond conse (Just altern)) =
+    do condVal <- translate cond
+       alternLabel <- newLabel (Just "else")
+       tell [ JumpIfZero condVal alternLabel ]
+       translate conse
+       endLabel <- newLabel (Just "end")
+       tell [ Jump endLabel
+            , Label alternLabel
+            ]
+       translate altern
+       tell [ Label endLabel ]
+
+instance TackyGenerator P.Declaration () where
+  translate :: P.Declaration -> TackyGenerationMonad ()
+  translate (P.Declaration _ Nothing) = pure ()
+  translate (P.Declaration lhs (Just rhs)) =
+    do rhsVal <- translate rhs
+       tell [ Copy { copySrc = rhsVal
+                   , copyDst = Var lhs
+                   }
+            ]
+
+instance TackyGenerator P.Exp Val where
+  translate :: P.Exp -> TackyGenerationMonad Val
+  translate (P.Constant (P.CInt val)) = pure $ Const val
+  translate (P.Var var) = pure $ Var var
+  translate (P.Conditional cond conse altern) =
+      do condVal <- translate cond
+         result <- newVar (Just "result")
+         alternLabel <- newLabel (Just "alternative")
+         tell [ JumpIfZero condVal alternLabel ]
+         conseVal <- translate conse
+         tell $ copyToResult conseVal result
+         endLabel <- newLabel (Just "end")
+         tell [ Jump endLabel
+              , Label alternLabel
+              ]
+         alternVal <- translate altern
+         tell $ copyToResult alternVal result
+         tell [ Label endLabel ]
+         pure result
+    where copyToResult from to =
+            [ Copy { copySrc = from
+                   , copyDst = to
+                   }
+            ]
+
+  translate (P.Unary P.Complement expr) = translateUnaryExp Complement expr
+  translate (P.Unary P.Negate     expr) = translateUnaryExp Negate     expr
+  translate (P.Unary P.Not        expr) = translateUnaryExp Not        expr
+  translate (P.Unary (P.UnaryAssignmentOperator P.PreDecrement)  var) = translatePreAssignmentExp Subtract var
+  translate (P.Unary (P.UnaryAssignmentOperator P.PreIncrement)  var) = translatePreAssignmentExp Add var
+  translate (P.Unary (P.UnaryAssignmentOperator P.PostDecrement) var) = translatePostAssignmentExp Subtract var
+  translate (P.Unary (P.UnaryAssignmentOperator P.PostIncrement) var) = translatePostAssignmentExp Add var
+
+  translate (P.Binary P.And expr1 expr2) = translateAndExp expr1 expr2
+  translate (P.Binary P.Or  expr1 expr2) = translateOrExp  expr1 expr2
+
+  translate (P.Binary P.BitOr          expr1 expr2) = translateBinaryExp BitOr          expr1 expr2
+  translate (P.Binary P.BitXOR         expr1 expr2) = translateBinaryExp BitXOR         expr1 expr2
+  translate (P.Binary P.BitAnd         expr1 expr2) = translateBinaryExp BitAnd         expr1 expr2
+  translate (P.Binary P.EqualsTo       expr1 expr2) = translateBinaryExp EqualsTo       expr1 expr2
+  translate (P.Binary P.NotEqualsTo    expr1 expr2) = translateBinaryExp NotEqualsTo    expr1 expr2
+  translate (P.Binary P.Less           expr1 expr2) = translateBinaryExp Less           expr1 expr2
+  translate (P.Binary P.LessOrEqual    expr1 expr2) = translateBinaryExp LessOrEqual    expr1 expr2
+  translate (P.Binary P.Greater        expr1 expr2) = translateBinaryExp Greater        expr1 expr2
+  translate (P.Binary P.GreaterOrEqual expr1 expr2) = translateBinaryExp GreaterOrEqual expr1 expr2
+  translate (P.Binary P.BitShiftLeft   expr1 expr2) = translateBinaryExp BitShiftLeft   expr1 expr2
+  translate (P.Binary P.BitShiftRight  expr1 expr2) = translateBinaryExp BitShiftRight  expr1 expr2
+  translate (P.Binary P.Add            expr1 expr2) = translateBinaryExp Add            expr1 expr2
+  translate (P.Binary P.Subtract       expr1 expr2) = translateBinaryExp Subtract       expr1 expr2
+  translate (P.Binary P.Multiply       expr1 expr2) = translateBinaryExp Multiply       expr1 expr2
+  translate (P.Binary P.Divide         expr1 expr2) = translateBinaryExp Divide         expr1 expr2
+  translate (P.Binary P.Remainder      expr1 expr2) = translateBinaryExp Remainder      expr1 expr2
+
+  translate (P.Assignment lhs P.AddAssign           rhs) = translateAssignmentExp Add           lhs rhs
+  translate (P.Assignment lhs P.SubAssign           rhs) = translateAssignmentExp Subtract      lhs rhs
+  translate (P.Assignment lhs P.MulAssign           rhs) = translateAssignmentExp Multiply      lhs rhs
+  translate (P.Assignment lhs P.DivAssign           rhs) = translateAssignmentExp Divide        lhs rhs
+  translate (P.Assignment lhs P.RemAssign           rhs) = translateAssignmentExp Remainder     lhs rhs
+  translate (P.Assignment lhs P.BitAndAssign        rhs) = translateAssignmentExp BitAnd        lhs rhs
+  translate (P.Assignment lhs P.BitOrAssign         rhs) = translateAssignmentExp BitOr         lhs rhs
+  translate (P.Assignment lhs P.BitXORAssign        rhs) = translateAssignmentExp BitXOR        lhs rhs
+  translate (P.Assignment lhs P.BitShiftLeftAssign  rhs) = translateAssignmentExp BitShiftLeft  lhs rhs
+  translate (P.Assignment lhs P.BitShiftRightAssign rhs) = translateAssignmentExp BitShiftRight lhs rhs
+
+  translate (P.Assignment lhs P.Assign rhs) =
+    do lhs' <- translate lhs
+       rhs' <- translate rhs
+       tell [ Copy { copySrc = rhs', copyDst = lhs' } ]
+       pure lhs'
+
+translateUnaryExp :: UnaryOperator -> P.Exp -> TackyGenerationMonad Val
+translateUnaryExp op expr =
+  do src <- translate expr
+     dst <- newTmpVar
+     tell [ Unary { unaryOperator = op, unarySrc = src, unaryDst = dst } ]
+     pure dst
+
+translatePreAssignmentExp :: BinaryOperator -> P.Exp -> TackyGenerationMonad Val
+translatePreAssignmentExp op var =
+  do var' <- translate var
+     tell [ Binary { binaryOperator = op, binarySrcs = (var', Const 1), binaryDst = var' } ]
+     pure var'
+
+translatePostAssignmentExp :: BinaryOperator -> P.Exp -> TackyGenerationMonad Val
+translatePostAssignmentExp op var =
+  do var' <- translate var
+     tmp <- newTmpVar
+     tell [ Copy { copySrc = var'
+                 , copyDst = tmp
+                 }
+          , Binary { binaryOperator = op
+                   , binarySrcs = (var', Const 1)
+                   , binaryDst = var'
+                   }
+          ]
+     pure tmp
+
+translateAndExp :: P.Exp -> P.Exp -> TackyGenerationMonad Val
+translateAndExp expr1 expr2 =
+  do val1 <- translate expr1
+     falseLabel <- newLabel (Just "and_false")
+     tell [ JumpIfZero val1 falseLabel ]
+     val2 <- translate expr2
+     result <- newVar (Just "and_result")
+     endLabel <- newLabel (Just "and_end")
+     tell [ JumpIfZero val2 falseLabel
+          , Copy { copySrc = Const 1, copyDst = result }
+          , Jump endLabel
+          , Label falseLabel
+          , Copy { copySrc = Const 0, copyDst = result }
+          , Label endLabel
+          ]
+     pure result
+
+translateOrExp :: P.Exp -> P.Exp -> TackyGenerationMonad Val
+translateOrExp expr1 expr2 =
+  do val1 <- translate expr1
+     trueLabel <- newLabel (Just "or_true")
+     tell [ JumpIfNotZero val1 trueLabel ]
+     val2 <- translate expr2
+     result <- newVar (Just "or_result")
+     endLabel <- newLabel (Just "end_label")
+     tell [ JumpIfNotZero val2 trueLabel
+          , Copy { copySrc = Const 0, copyDst = result }
+          , Jump endLabel
+          , Label trueLabel
+          , Copy { copySrc = Const 1, copyDst = result }
+          , Label endLabel
+          ]
+     pure result
+
+translateBinaryExp :: BinaryOperator -> P.Exp -> P.Exp -> TackyGenerationMonad Val
+translateBinaryExp op expr1 expr2 =
+  do src1 <- translate expr1
+     src2 <- translate expr2
+     dst  <- newTmpVar
+     tell [ Binary { binaryOperator = op, binarySrcs = (src1, src2), binaryDst = dst } ]
+     pure dst
+
+data State' = State { stateLastTmp  :: Int
+                   , stateLastLabel :: Int
+                   }
+
+translateAssignmentExp :: BinaryOperator -> P.Exp -> P.Exp -> TackyGenerationMonad Val
+translateAssignmentExp op lhs rhs =
+  do lhs' <- translate lhs
+     rhs' <- translate rhs
+     tmp  <- newTmpVar
+     tell [ Binary { binaryOperator = op, binarySrcs = (lhs', rhs'), binaryDst = tmp }
+          , Copy { copySrc = tmp, copyDst = lhs' }
+          ]
+     pure lhs'
 
