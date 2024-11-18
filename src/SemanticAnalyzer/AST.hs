@@ -1,189 +1,115 @@
-{-# LANGUAGE InstanceSigs      #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE InstanceSigs         #-}
+{-# LANGUAGE OverloadedStrings    #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 
 module SemanticAnalyzer.AST where
 
-import           Parser.AST             (Block (Block), BlockItem (..),
-                                         Declaration (..), Exp (..),
-                                         FunctionDefinition (Function),
-                                         Identifier, Program (..),
-                                         Statement (..),
-                                         UnaryOperator (UnaryAssignmentOperator))
-import           SemanticAnalyzer.Error (SemanticError (..))
 
-import           Control.Applicative    (asum)
-import           Control.Monad.Except   (Except, MonadError (..))
-import           Control.Monad.State    (StateT, gets, modify)
-import           Data.Map               (Map)
-import qualified Data.Map               as M
-import           Data.Maybe             (fromMaybe)
-import qualified Data.Text              as T
-import           Numeric.Natural        (Natural)
+import           Data.Text  (Text)
+import qualified Data.Text  as T
+import           Parser.AST (AssignmentOperator (..), BinaryOperator (..),
+                             Constant (..), Identifier,
+                             UnaryAssignmentOperator (..), UnaryOperator (..))
+import           Pretty     (PrettyPrinter (..), identLines)
 
-type IdentifierMap = Map Identifier Identifier
+type Label = Identifier
 
-emptyIdentifierMap :: IdentifierMap
-emptyIdentifierMap = M.empty
+newtype Program = Program FunctionDefinition
+  deriving (Show)
 
-data Environment = Environment { envFunctionName       :: Maybe Identifier
-                               , envVarCounter         :: Natural
-                               , envCurrentScopeVarEnv :: IdentifierMap
-                               , envUpperScopesVarEnvs :: [IdentifierMap]
-                               , envLabelCounter       :: Natural
-                               , envLabelEnv           :: IdentifierMap
-                               }
+data FunctionDefinition = Function Identifier Block
+  deriving (Show)
 
-emptyEnvironment :: Environment
-emptyEnvironment = Environment { envFunctionName       = Nothing
-                               , envVarCounter         = 0
-                               , envCurrentScopeVarEnv = emptyIdentifierMap
-                               , envUpperScopesVarEnvs = []
-                               , envLabelCounter       = 0
-                               , envLabelEnv           = emptyIdentifierMap
-                               }
+data BlockItem = Stmt Statement
+               | Dec Declaration
+  deriving (Show)
 
-type SemanticAnalyzerMonad a = StateT Environment (Except SemanticError) a
+newtype Block = Block [BlockItem]
+  deriving (Show)
 
-newVar :: Identifier -> SemanticAnalyzerMonad Identifier
-newVar var =
-  do varCounter <- gets envVarCounter
-     varEnv     <- gets envCurrentScopeVarEnv
-     if var `M.member` varEnv then
-       throwError $ DuplicateIdentifierDeclaration var
-     else do
-       let varCounter' = succ varCounter
-       let var' = "var." <> var <> "." <> T.pack (show varCounter')
-       let varEnv' = M.insert var var' varEnv
-       modify (\env -> env { envCurrentScopeVarEnv = varEnv', envVarCounter = varCounter' })
-       return var'
+data Statement = Return Exp
+               | Expression Exp
+               | If Exp Statement (Maybe Statement)
+               | Compound Block
+               | Goto Identifier
+               | Label Identifier
+               | Break Label
+               | Continue Label
+               | While Exp Statement Label
+               | DoWhile Statement Exp Label
+               | For ForInit (Maybe Exp) (Maybe Exp) Statement Label
+               | Null
+  deriving (Show)
 
-newLabel :: Identifier -> SemanticAnalyzerMonad Identifier
-newLabel label =
-  do functionName <- gets envFunctionName
-     labelCounter <- gets envLabelCounter
-     labelEnv     <- gets envLabelEnv
-     if label `M.member` labelEnv then
-       throwError $ DuplicateIdentifierDeclaration label
-     else do
-       let labelCounter' = succ labelCounter
-       let label' = ".L" <> fromMaybe "" functionName <> "." <> label <> "." <> T.pack (show labelCounter')
-       let labelEnv' = M.insert label label' labelEnv
-       modify (\env -> env { envLabelEnv = labelEnv', envLabelCounter = labelCounter' })
-       return label'
+data ForInit = InitDecl Declaration
+             | InitExp  (Maybe Exp)
+  deriving (Show)
 
-getVar :: Identifier -> SemanticAnalyzerMonad Identifier
-getVar var = do currentScopeVarEnv <- gets envCurrentScopeVarEnv
-                upperScopeVarEnvs  <- gets envUpperScopesVarEnvs
-                case asum $ map (M.lookup var) $ currentScopeVarEnv : upperScopeVarEnvs of
-                  Nothing   -> throwError $ UndefinedIdentifierUse var
-                  Just var' -> return var'
+data Declaration = Declaration Identifier (Maybe Exp)
+  deriving (Show)
 
-getLabel :: Identifier -> SemanticAnalyzerMonad Identifier
-getLabel label = do m <- gets envLabelEnv
-                    case M.lookup label m of
-                      Nothing     -> throwError $ UndefinedIdentifierUse label
-                      Just label' -> return label'
+data Exp = Constant Constant
+         | Var Identifier
+         | Unary UnaryOperator Exp
+         | Binary BinaryOperator Exp Exp
+         | Assignment Exp AssignmentOperator Exp
+         | Conditional Exp Exp Exp
+  deriving (Show)
 
-class SemanticAnalyzer a where
-  resolve :: a -> SemanticAnalyzerMonad a
-  checkLabels :: a -> SemanticAnalyzerMonad a
+instance PrettyPrinter Program where
+  pretty :: Program -> Text
+  pretty (Program f) = "Program\n" <>  f'
+    where f' = identLines $ pretty f
 
-instance SemanticAnalyzer Program where
-  resolve :: Program -> SemanticAnalyzerMonad Program
-  resolve (Program func) = Program <$> resolve func
+instance PrettyPrinter FunctionDefinition where
+  pretty :: FunctionDefinition -> Text
+  pretty (Function name body) = "Function '" <> name <> "'\n" <> pretty body <> "\n"
 
-  checkLabels :: Program -> SemanticAnalyzerMonad Program
-  checkLabels (Program func) = Program <$> checkLabels func
+instance PrettyPrinter Block where
+  pretty :: Block -> Text
+  pretty (Block blockItens) = T.concat $ map (identLines . pretty) blockItens
 
-instance SemanticAnalyzer FunctionDefinition where
-  resolve :: FunctionDefinition -> SemanticAnalyzerMonad FunctionDefinition
-  resolve (Function name body) =
-    do modify (\env -> env { envFunctionName = Just name })
-       Function name <$> resolve body
+instance PrettyPrinter BlockItem where
+  pretty :: BlockItem -> Text
+  pretty (Stmt stmt) = pretty stmt
+  pretty (Dec dec)   = pretty dec
 
-  checkLabels :: FunctionDefinition -> SemanticAnalyzerMonad FunctionDefinition
-  checkLabels (Function name body) =
-    do modify (\env -> env { envFunctionName = Just name })
-       Function name <$> checkLabels body
+instance PrettyPrinter Statement where
+  pretty :: Statement -> Text
+  pretty (Return expr) = ret <> expr' <> ";\n"
+    where ret = "return "
+          expr' = pretty expr
+  pretty (Expression expr) = pretty expr <> ";\n"
+  pretty (If cond expThen Nothing) = "if (" <> pretty cond <> ")\n" <> identLines (pretty expThen)
+  pretty (If cond expThen (Just expElse)) = "if (" <> pretty cond <> ")\n" <> identLines (pretty expThen) <> "\nelse\n" <> identLines (pretty expElse)
+  pretty (Compound block) = "{\n" <> pretty block <> "\n}\n"
+  pretty (Goto label) = "goto " <> pretty label <> ";\n"
+  pretty (Label label) = pretty label <> ":\n"
+  pretty (Break _) = "break;\n"
+  pretty (Continue _) = "continue;\n"
+  pretty (While cond body _) = "while (" <> pretty cond <> ")" <> pretty body
+  pretty (DoWhile body cond _) = "do" <> pretty body <> "while (" <> pretty cond <> ");\n"
+  pretty (For ini cond post body _) = "for (" <> pretty ini <> "; " <> maybe "" pretty cond <> "; " <> maybe "" pretty post <> ")\n" <> pretty body
+  pretty Null = ";\n"
 
-instance SemanticAnalyzer Block where
-  resolve :: Block -> SemanticAnalyzerMonad Block
-  resolve (Block blockItens) =
-    do currentScopeVarEnv <- gets envCurrentScopeVarEnv
-       upperScopesVarEnvs <- gets envUpperScopesVarEnvs
-       modify (\env -> env { envCurrentScopeVarEnv = emptyIdentifierMap, envUpperScopesVarEnvs = currentScopeVarEnv : upperScopesVarEnvs })
-       blockItens' <- mapM resolve blockItens
-       modify (\env -> env { envCurrentScopeVarEnv = currentScopeVarEnv, envUpperScopesVarEnvs = upperScopesVarEnvs })
-       pure $ Block blockItens'
+instance PrettyPrinter ForInit where
+  pretty :: ForInit -> Text
+  pretty (InitDecl decl) = pretty decl
+  pretty (InitExp  expr) = maybe "" pretty expr
 
-  checkLabels :: Block -> SemanticAnalyzerMonad Block
-  checkLabels (Block blockItens) = Block <$> mapM checkLabels blockItens
+instance PrettyPrinter Declaration where
+  pretty :: Declaration -> Text
+  pretty (Declaration name Nothing) = "int " <> name <> ";\n";
+  pretty (Declaration name (Just i)) = "int " <> name <> " = " <> pretty i <> ";\n";
 
-instance SemanticAnalyzer BlockItem where
-  resolve :: BlockItem -> SemanticAnalyzerMonad BlockItem
-  resolve (Stmt stmt) = Stmt <$> resolve stmt
-  resolve (Dec  dec)  = Dec  <$> resolve dec
-
-  checkLabels :: BlockItem -> SemanticAnalyzerMonad BlockItem
-  checkLabels (Stmt stmt) = Stmt <$> checkLabels stmt
-  checkLabels (Dec dec)   = Dec <$> checkLabels dec
-
-instance SemanticAnalyzer Statement where
-  resolve :: Statement -> SemanticAnalyzerMonad Statement
-  resolve (Return expr)     = Return <$> resolve expr
-  resolve (Expression expr) = Expression <$> resolve expr
-  resolve (If cond conseq altern) = If <$> resolve cond <*> resolve conseq <*>
-    case altern of Just altern' -> Just <$> resolve altern'
-                   Nothing      -> pure Nothing
-  resolve (Compound block) = Compound <$> resolve block
-  resolve Null = pure Null
-  resolve (Label label) = Label <$> newLabel label
-  resolve g@(Goto _) = pure g
-
-  checkLabels :: Statement -> SemanticAnalyzerMonad Statement
-  checkLabels (Goto label)      = Goto <$> getLabel label
-  checkLabels (Return expr)     = Return <$> checkLabels expr
-  checkLabels (Expression expr) = Expression <$> checkLabels expr
-  checkLabels l@(Label _)       = pure l
-  checkLabels (Compound block)  = Compound <$> checkLabels block
-  checkLabels Null              = pure Null
-  checkLabels (If cond conse altern) = If <$> checkLabels cond <*> checkLabels conse <*>
-    case altern of Just altern' -> Just <$> checkLabels altern'
-                   Nothing      -> pure Nothing
-
-instance SemanticAnalyzer Declaration where
-  resolve :: Declaration -> SemanticAnalyzerMonad Declaration
-  resolve (Declaration var initialisation) = Declaration <$> newVar var <*>
-    case initialisation of
-      Just initialisation' -> Just <$> resolve initialisation'
-      Nothing              -> pure Nothing
-
-  checkLabels :: Declaration -> SemanticAnalyzerMonad Declaration
-  checkLabels (Declaration var initialisation) = Declaration var <$>
-    case initialisation of
-      Just initialisation' -> Just <$> checkLabels initialisation'
-      Nothing              -> pure Nothing
-
-instance SemanticAnalyzer Exp where
-  resolve :: Exp -> SemanticAnalyzerMonad Exp
-  resolve e@(Constant _) = pure e
-  resolve (Var var)      = Var <$> getVar var
-  resolve (Unary op@(UnaryAssignmentOperator _) var@(Var _)) = Unary op <$> resolve var
-  resolve (Unary    (UnaryAssignmentOperator _) e)           = throwError $ InvalidLHS e
-  resolve (Unary op                             e)           = Unary op <$> resolve e
-  resolve (Binary op exp1 exp2) = Binary op <$> resolve exp1 <*> resolve exp2
-  resolve (Assignment var@(Var _) op rhs) = Assignment <$> resolve var <*> pure op <*> resolve rhs
-  resolve (Assignment lhs         _  _)   = throwError $ InvalidLHS lhs
-  resolve (Conditional cond conse altern) = Conditional <$> resolve cond <*> resolve conse <*> resolve altern
-
-  checkLabels :: Exp -> SemanticAnalyzerMonad Exp
-  checkLabels e@(Constant _) = pure e
-  checkLabels (Var var)      = pure $ Var var
-  checkLabels (Unary op@(UnaryAssignmentOperator _) var@(Var _)) = Unary op <$> checkLabels var
-  checkLabels (Unary    (UnaryAssignmentOperator _) e)           = throwError $ InvalidLHS e
-  checkLabels (Unary op                             e)           = Unary op <$> checkLabels e
-  checkLabels (Binary op exp1 exp2) = Binary op <$> checkLabels exp1 <*> checkLabels exp2
-  checkLabels (Assignment var@(Var _) op rhs) = Assignment <$> checkLabels var <*> pure op <*> checkLabels rhs
-  checkLabels (Assignment lhs         _  _)   = throwError $ InvalidLHS lhs
-  checkLabels (Conditional cond conse altern) = Conditional <$> checkLabels cond <*> checkLabels conse <*> checkLabels altern
+instance PrettyPrinter Exp where
+  pretty :: Exp -> Text
+  pretty (Constant val) = pretty val
+  pretty (Var var) = var
+  pretty (Unary op@(UnaryAssignmentOperator PostDecrement) expr) = "(" <> pretty expr <> pretty op <> ")"
+  pretty (Unary op@(UnaryAssignmentOperator PostIncrement) expr) = "(" <> pretty expr <> pretty op <> ")"
+  pretty (Unary op expr) = "(" <> pretty op <> pretty expr <> ")"
+  pretty (Binary op exprl exprr) = "(" <> T.intercalate " " [pretty exprl, pretty op, pretty exprr] <> ")"
+  pretty (Assignment exprl op exprr) = "(" <> T.intercalate " " [pretty exprl, pretty op, pretty exprr] <> ")"
+  pretty (Conditional cond exp1 exp2) = "(" <> pretty cond <> " ? " <> pretty exp1 <> " : " <> pretty exp2 <> ")"
 

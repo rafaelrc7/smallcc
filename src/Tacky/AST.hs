@@ -16,6 +16,7 @@ import           Data.Functor         (($>))
 import           Numeric.Natural      (Natural)
 import           Parser.AST           (Identifier)
 import qualified Parser.AST           as P
+import qualified SemanticAnalyzer.AST as SA
 
 newtype Program = Program FunctionDefinition
   deriving (Show)
@@ -98,11 +99,11 @@ newLabel caption = gets envLastLabel >>= \lastLabel ->
                 Just caption' -> caption' <> "." <> currLabelText
   in modify (\s -> s { envLastLabel = currLabel }) $> label
 
-translateProgram :: P.Program -> Program
-translateProgram (P.Program func) = Program $ translateFunction func
+translateProgram :: SA.Program -> Program
+translateProgram (SA.Program func) = Program $ translateFunction func
 
-translateFunction :: P.FunctionDefinition -> FunctionDefinition
-translateFunction (P.Function name body) =
+translateFunction :: SA.FunctionDefinition -> FunctionDefinition
+translateFunction (SA.Function name body) =
      Function { funcIdentifier = name
               , funcBody = body' ++ [ Return (Const 0) ]
               }
@@ -112,30 +113,30 @@ translateFunction (P.Function name body) =
 class TackyGenerator a b | a -> b where
   translate :: a -> TackyGenerationMonad b
 
-instance TackyGenerator P.Block () where
-  translate :: P.Block -> TackyGenerationMonad ()
-  translate (P.Block blockItens) = mapM_ translate blockItens
+instance TackyGenerator SA.Block () where
+  translate :: SA.Block -> TackyGenerationMonad ()
+  translate (SA.Block blockItens) = mapM_ translate blockItens
 
-instance TackyGenerator P.BlockItem () where
-  translate :: P.BlockItem -> TackyGenerationMonad ()
-  translate (P.Stmt stmt) = translate stmt
-  translate (P.Dec  decl) = translate decl
+instance TackyGenerator SA.BlockItem () where
+  translate :: SA.BlockItem -> TackyGenerationMonad ()
+  translate (SA.Stmt stmt) = translate stmt
+  translate (SA.Dec  decl) = translate decl
 
-instance TackyGenerator P.Statement () where
-  translate :: P.Statement -> TackyGenerationMonad ()
-  translate P.Null          = pure ()
-  translate (P.Return expr) = translate expr >>= \v -> tell [ Return v ]
-  translate (P.Expression expr) = void $ translate expr
-  translate (P.Goto label) = tell [ Jump label ]
-  translate (P.Label label) = tell [ Label label ]
-  translate (P.Compound block) = translate block
-  translate (P.If cond conse Nothing) =
+instance TackyGenerator SA.Statement () where
+  translate :: SA.Statement -> TackyGenerationMonad ()
+  translate SA.Null          = pure ()
+  translate (SA.Return expr) = translate expr >>= \v -> tell [ Return v ]
+  translate (SA.Expression expr) = void $ translate expr
+  translate (SA.Goto label) = tell [ Jump label ]
+  translate (SA.Label label) = tell [ Label label ]
+  translate (SA.Compound block) = translate block
+  translate (SA.If cond conse Nothing) =
     do condVal <- translate cond
        endLabel <- newLabel (Just "end")
        tell [ JumpIfZero condVal endLabel ]
        translate conse
        tell [ Label endLabel ]
-  translate (P.If cond conse (Just altern)) =
+  translate (SA.If cond conse (Just altern)) =
     do condVal <- translate cond
        alternLabel <- newLabel (Just "else")
        tell [ JumpIfZero condVal alternLabel ]
@@ -147,21 +148,21 @@ instance TackyGenerator P.Statement () where
        translate altern
        tell [ Label endLabel ]
 
-instance TackyGenerator P.Declaration () where
-  translate :: P.Declaration -> TackyGenerationMonad ()
-  translate (P.Declaration _ Nothing) = pure ()
-  translate (P.Declaration lhs (Just rhs)) =
+instance TackyGenerator SA.Declaration () where
+  translate :: SA.Declaration -> TackyGenerationMonad ()
+  translate (SA.Declaration _ Nothing) = pure ()
+  translate (SA.Declaration lhs (Just rhs)) =
     do rhsVal <- translate rhs
        tell [ Copy { copySrc = rhsVal
                    , copyDst = Var lhs
                    }
             ]
 
-instance TackyGenerator P.Exp Val where
-  translate :: P.Exp -> TackyGenerationMonad Val
-  translate (P.Constant (P.CInt val)) = pure $ Const val
-  translate (P.Var var) = pure $ Var var
-  translate (P.Conditional cond conse altern) =
+instance TackyGenerator SA.Exp Val where
+  translate :: SA.Exp -> TackyGenerationMonad Val
+  translate (SA.Constant (P.CInt val)) = pure $ Const val
+  translate (SA.Var var) = pure $ Var var
+  translate (SA.Conditional cond conse altern) =
       do condVal <- translate cond
          result <- newVar (Just "result")
          alternLabel <- newLabel (Just "alternative")
@@ -182,65 +183,65 @@ instance TackyGenerator P.Exp Val where
                    }
             ]
 
-  translate (P.Unary P.Complement expr) = translateUnaryExp Complement expr
-  translate (P.Unary P.Negate     expr) = translateUnaryExp Negate     expr
-  translate (P.Unary P.Not        expr) = translateUnaryExp Not        expr
-  translate (P.Unary (P.UnaryAssignmentOperator P.PreDecrement)  var) = translatePreAssignmentExp Subtract var
-  translate (P.Unary (P.UnaryAssignmentOperator P.PreIncrement)  var) = translatePreAssignmentExp Add var
-  translate (P.Unary (P.UnaryAssignmentOperator P.PostDecrement) var) = translatePostAssignmentExp Subtract var
-  translate (P.Unary (P.UnaryAssignmentOperator P.PostIncrement) var) = translatePostAssignmentExp Add var
+  translate (SA.Unary P.Complement expr) = translateUnaryExp Complement expr
+  translate (SA.Unary P.Negate     expr) = translateUnaryExp Negate     expr
+  translate (SA.Unary P.Not        expr) = translateUnaryExp Not        expr
+  translate (SA.Unary (P.UnaryAssignmentOperator P.PreDecrement)  var) = translatePreAssignmentExp Subtract var
+  translate (SA.Unary (P.UnaryAssignmentOperator P.PreIncrement)  var) = translatePreAssignmentExp Add var
+  translate (SA.Unary (P.UnaryAssignmentOperator P.PostDecrement) var) = translatePostAssignmentExp Subtract var
+  translate (SA.Unary (P.UnaryAssignmentOperator P.PostIncrement) var) = translatePostAssignmentExp Add var
 
-  translate (P.Binary P.And expr1 expr2) = translateAndExp expr1 expr2
-  translate (P.Binary P.Or  expr1 expr2) = translateOrExp  expr1 expr2
+  translate (SA.Binary P.And expr1 expr2) = translateAndExp expr1 expr2
+  translate (SA.Binary P.Or  expr1 expr2) = translateOrExp  expr1 expr2
 
-  translate (P.Binary P.BitOr          expr1 expr2) = translateBinaryExp BitOr          expr1 expr2
-  translate (P.Binary P.BitXOR         expr1 expr2) = translateBinaryExp BitXOR         expr1 expr2
-  translate (P.Binary P.BitAnd         expr1 expr2) = translateBinaryExp BitAnd         expr1 expr2
-  translate (P.Binary P.EqualsTo       expr1 expr2) = translateBinaryExp EqualsTo       expr1 expr2
-  translate (P.Binary P.NotEqualsTo    expr1 expr2) = translateBinaryExp NotEqualsTo    expr1 expr2
-  translate (P.Binary P.Less           expr1 expr2) = translateBinaryExp Less           expr1 expr2
-  translate (P.Binary P.LessOrEqual    expr1 expr2) = translateBinaryExp LessOrEqual    expr1 expr2
-  translate (P.Binary P.Greater        expr1 expr2) = translateBinaryExp Greater        expr1 expr2
-  translate (P.Binary P.GreaterOrEqual expr1 expr2) = translateBinaryExp GreaterOrEqual expr1 expr2
-  translate (P.Binary P.BitShiftLeft   expr1 expr2) = translateBinaryExp BitShiftLeft   expr1 expr2
-  translate (P.Binary P.BitShiftRight  expr1 expr2) = translateBinaryExp BitShiftRight  expr1 expr2
-  translate (P.Binary P.Add            expr1 expr2) = translateBinaryExp Add            expr1 expr2
-  translate (P.Binary P.Subtract       expr1 expr2) = translateBinaryExp Subtract       expr1 expr2
-  translate (P.Binary P.Multiply       expr1 expr2) = translateBinaryExp Multiply       expr1 expr2
-  translate (P.Binary P.Divide         expr1 expr2) = translateBinaryExp Divide         expr1 expr2
-  translate (P.Binary P.Remainder      expr1 expr2) = translateBinaryExp Remainder      expr1 expr2
+  translate (SA.Binary P.BitOr          expr1 expr2) = translateBinaryExp BitOr          expr1 expr2
+  translate (SA.Binary P.BitXOR         expr1 expr2) = translateBinaryExp BitXOR         expr1 expr2
+  translate (SA.Binary P.BitAnd         expr1 expr2) = translateBinaryExp BitAnd         expr1 expr2
+  translate (SA.Binary P.EqualsTo       expr1 expr2) = translateBinaryExp EqualsTo       expr1 expr2
+  translate (SA.Binary P.NotEqualsTo    expr1 expr2) = translateBinaryExp NotEqualsTo    expr1 expr2
+  translate (SA.Binary P.Less           expr1 expr2) = translateBinaryExp Less           expr1 expr2
+  translate (SA.Binary P.LessOrEqual    expr1 expr2) = translateBinaryExp LessOrEqual    expr1 expr2
+  translate (SA.Binary P.Greater        expr1 expr2) = translateBinaryExp Greater        expr1 expr2
+  translate (SA.Binary P.GreaterOrEqual expr1 expr2) = translateBinaryExp GreaterOrEqual expr1 expr2
+  translate (SA.Binary P.BitShiftLeft   expr1 expr2) = translateBinaryExp BitShiftLeft   expr1 expr2
+  translate (SA.Binary P.BitShiftRight  expr1 expr2) = translateBinaryExp BitShiftRight  expr1 expr2
+  translate (SA.Binary P.Add            expr1 expr2) = translateBinaryExp Add            expr1 expr2
+  translate (SA.Binary P.Subtract       expr1 expr2) = translateBinaryExp Subtract       expr1 expr2
+  translate (SA.Binary P.Multiply       expr1 expr2) = translateBinaryExp Multiply       expr1 expr2
+  translate (SA.Binary P.Divide         expr1 expr2) = translateBinaryExp Divide         expr1 expr2
+  translate (SA.Binary P.Remainder      expr1 expr2) = translateBinaryExp Remainder      expr1 expr2
 
-  translate (P.Assignment lhs P.AddAssign           rhs) = translateAssignmentExp Add           lhs rhs
-  translate (P.Assignment lhs P.SubAssign           rhs) = translateAssignmentExp Subtract      lhs rhs
-  translate (P.Assignment lhs P.MulAssign           rhs) = translateAssignmentExp Multiply      lhs rhs
-  translate (P.Assignment lhs P.DivAssign           rhs) = translateAssignmentExp Divide        lhs rhs
-  translate (P.Assignment lhs P.RemAssign           rhs) = translateAssignmentExp Remainder     lhs rhs
-  translate (P.Assignment lhs P.BitAndAssign        rhs) = translateAssignmentExp BitAnd        lhs rhs
-  translate (P.Assignment lhs P.BitOrAssign         rhs) = translateAssignmentExp BitOr         lhs rhs
-  translate (P.Assignment lhs P.BitXORAssign        rhs) = translateAssignmentExp BitXOR        lhs rhs
-  translate (P.Assignment lhs P.BitShiftLeftAssign  rhs) = translateAssignmentExp BitShiftLeft  lhs rhs
-  translate (P.Assignment lhs P.BitShiftRightAssign rhs) = translateAssignmentExp BitShiftRight lhs rhs
+  translate (SA.Assignment lhs P.AddAssign           rhs) = translateAssignmentExp Add           lhs rhs
+  translate (SA.Assignment lhs P.SubAssign           rhs) = translateAssignmentExp Subtract      lhs rhs
+  translate (SA.Assignment lhs P.MulAssign           rhs) = translateAssignmentExp Multiply      lhs rhs
+  translate (SA.Assignment lhs P.DivAssign           rhs) = translateAssignmentExp Divide        lhs rhs
+  translate (SA.Assignment lhs P.RemAssign           rhs) = translateAssignmentExp Remainder     lhs rhs
+  translate (SA.Assignment lhs P.BitAndAssign        rhs) = translateAssignmentExp BitAnd        lhs rhs
+  translate (SA.Assignment lhs P.BitOrAssign         rhs) = translateAssignmentExp BitOr         lhs rhs
+  translate (SA.Assignment lhs P.BitXORAssign        rhs) = translateAssignmentExp BitXOR        lhs rhs
+  translate (SA.Assignment lhs P.BitShiftLeftAssign  rhs) = translateAssignmentExp BitShiftLeft  lhs rhs
+  translate (SA.Assignment lhs P.BitShiftRightAssign rhs) = translateAssignmentExp BitShiftRight lhs rhs
 
-  translate (P.Assignment lhs P.Assign rhs) =
+  translate (SA.Assignment lhs P.Assign rhs) =
     do lhs' <- translate lhs
        rhs' <- translate rhs
        tell [ Copy { copySrc = rhs', copyDst = lhs' } ]
        pure lhs'
 
-translateUnaryExp :: UnaryOperator -> P.Exp -> TackyGenerationMonad Val
+translateUnaryExp :: UnaryOperator -> SA.Exp -> TackyGenerationMonad Val
 translateUnaryExp op expr =
   do src <- translate expr
      dst <- newTmpVar
      tell [ Unary { unaryOperator = op, unarySrc = src, unaryDst = dst } ]
      pure dst
 
-translatePreAssignmentExp :: BinaryOperator -> P.Exp -> TackyGenerationMonad Val
+translatePreAssignmentExp :: BinaryOperator -> SA.Exp -> TackyGenerationMonad Val
 translatePreAssignmentExp op var =
   do var' <- translate var
      tell [ Binary { binaryOperator = op, binarySrcs = (var', Const 1), binaryDst = var' } ]
      pure var'
 
-translatePostAssignmentExp :: BinaryOperator -> P.Exp -> TackyGenerationMonad Val
+translatePostAssignmentExp :: BinaryOperator -> SA.Exp -> TackyGenerationMonad Val
 translatePostAssignmentExp op var =
   do var' <- translate var
      tmp <- newTmpVar
@@ -254,7 +255,7 @@ translatePostAssignmentExp op var =
           ]
      pure tmp
 
-translateAndExp :: P.Exp -> P.Exp -> TackyGenerationMonad Val
+translateAndExp :: SA.Exp -> SA.Exp -> TackyGenerationMonad Val
 translateAndExp expr1 expr2 =
   do val1 <- translate expr1
      falseLabel <- newLabel (Just "and_false")
@@ -271,7 +272,7 @@ translateAndExp expr1 expr2 =
           ]
      pure result
 
-translateOrExp :: P.Exp -> P.Exp -> TackyGenerationMonad Val
+translateOrExp :: SA.Exp -> SA.Exp -> TackyGenerationMonad Val
 translateOrExp expr1 expr2 =
   do val1 <- translate expr1
      trueLabel <- newLabel (Just "or_true")
@@ -288,7 +289,7 @@ translateOrExp expr1 expr2 =
           ]
      pure result
 
-translateBinaryExp :: BinaryOperator -> P.Exp -> P.Exp -> TackyGenerationMonad Val
+translateBinaryExp :: BinaryOperator -> SA.Exp -> SA.Exp -> TackyGenerationMonad Val
 translateBinaryExp op expr1 expr2 =
   do src1 <- translate expr1
      src2 <- translate expr2
@@ -300,7 +301,7 @@ data State' = State { stateLastTmp  :: Int
                    , stateLastLabel :: Int
                    }
 
-translateAssignmentExp :: BinaryOperator -> P.Exp -> P.Exp -> TackyGenerationMonad Val
+translateAssignmentExp :: BinaryOperator -> SA.Exp -> SA.Exp -> TackyGenerationMonad Val
 translateAssignmentExp op lhs rhs =
   do lhs' <- translate lhs
      rhs' <- translate rhs

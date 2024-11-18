@@ -83,6 +83,7 @@ library
     Parser.ParserMonad
     SemanticAnalyzer.AST
     SemanticAnalyzer.Error
+    SemanticAnalyzer.SemanticAnalyzerMonad
     Tacky.AST
 
   -- LANGUAGE extensions used by modules in this package.

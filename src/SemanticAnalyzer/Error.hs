@@ -1,10 +1,13 @@
 module SemanticAnalyzer.Error where
 
-import           Data.Text  (Text)
-import           Parser.AST (Exp)
+import           Parser.AST (Exp, Identifier)
 
-data SemanticError = DuplicateIdentifierDeclaration Text
-                   | UndefinedIdentifierUse Text
+data SemanticError = DuplicateVariableDeclaration Identifier
+                   | UndefinedVariableUse Identifier
                    | InvalidLHS Exp
+                   | DuplicateLabelDeclaration Identifier
+                   | UndefinedLabelUse Identifier
+                   | BreakOutsideLoop
+                   | ContinueOutsideLoop
   deriving (Show)
 

@@ -1,8 +1,8 @@
 module Tacky where
 
-import qualified Parser.AST as P
+import qualified SemanticAnalyzer.AST as SA
 import           Tacky.AST
 
-translateTacky :: P.Program -> Program
+translateTacky :: SA.Program -> Program
 translateTacky = translateProgram
 
