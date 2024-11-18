@@ -147,6 +147,53 @@ instance TackyGenerator SA.Statement () where
             ]
        translate altern
        tell [ Label endLabel ]
+  translate (SA.DoWhile body cond label) =
+    do let startLabel    = label <> "_start"
+       let continueLabel = label <> "_continue"
+       let breakLabel    = label <> "_break"
+       tell [ Label startLabel ]
+       translate body
+       tell [ Label continueLabel ]
+       condVal <- translate cond
+       tell [ JumpIfNotZero condVal startLabel ]
+       tell [ Label breakLabel ]
+  translate (SA.While cond body label) =
+    do let continueLabel = label <> "_continue"
+       let breakLabel    = label <> "_break"
+       tell [ Label continueLabel ]
+       condVal <- translate cond
+       tell [ JumpIfZero condVal breakLabel ]
+       translate body
+       tell [ Jump continueLabel
+            , Label breakLabel
+            ]
+  translate (SA.For ini cond post body label) =
+    do let startLabel    = label <> "_start"
+       let continueLabel = label <> "_continue"
+       let breakLabel    = label <> "_break"
+       translate ini
+       tell [ Label startLabel ]
+       condVal <- case cond of
+         Just cond' -> translate cond'
+         Nothing    -> pure $ Const 1
+       tell [ JumpIfZero condVal breakLabel ]
+       translate body
+       tell [ Label continueLabel ]
+       case post of
+         Just post' -> void $ translate post'
+         Nothing    -> pure ()
+       tell [ Jump startLabel
+            , Label breakLabel
+            ]
+  translate (SA.Break label)    = tell [ Jump $ label <> "_break" ]
+  translate (SA.Continue label) = tell [ Jump $ label <> "_continue" ]
+
+instance TackyGenerator SA.ForInit () where
+  translate :: SA.ForInit -> TackyGenerationMonad ()
+  translate (SA.InitExp expr)  = case expr of
+    Just expr' -> void $ translate expr'
+    Nothing    -> pure ()
+  translate (SA.InitDecl decl) = translate decl
 
 instance TackyGenerator SA.Declaration () where
   translate :: SA.Declaration -> TackyGenerationMonad ()
@@ -296,10 +343,6 @@ translateBinaryExp op expr1 expr2 =
      dst  <- newTmpVar
      tell [ Binary { binaryOperator = op, binarySrcs = (src1, src2), binaryDst = dst } ]
      pure dst
-
-data State' = State { stateLastTmp  :: Int
-                   , stateLastLabel :: Int
-                   }
 
 translateAssignmentExp :: BinaryOperator -> SA.Exp -> SA.Exp -> TackyGenerationMonad Val
 translateAssignmentExp op lhs rhs =

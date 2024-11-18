@@ -259,7 +259,7 @@ instance StatementLabeler P.Statement Statement where
        pure stmt
   labelStatement (P.DoWhile body cond) =
     do currentLoopLabel <- gets envCurrentLoopLabel
-       newLoopLabel <- newLabel "do-while"
+       newLoopLabel <- newLabel "doWhile"
        modify (\env -> env { envCurrentLoopLabel = Just newLoopLabel })
        stmt <- DoWhile <$> labelStatement body <*> labelStatement cond <*> pure newLoopLabel
        modify (\env -> env { envCurrentLoopLabel = currentLoopLabel })
