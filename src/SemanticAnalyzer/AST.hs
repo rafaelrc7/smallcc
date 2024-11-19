@@ -12,33 +12,42 @@ import           Parser.AST (AssignmentOperator (..), BinaryOperator (..),
                              UnaryAssignmentOperator (..), UnaryOperator (..))
 import           Pretty     (PrettyPrinter (..), identLines)
 
-type Label = Identifier
-
 newtype Program = Program FunctionDefinition
   deriving (Show)
 
 data FunctionDefinition = Function Identifier Block
   deriving (Show)
 
-data BlockItem = Stmt Statement
-               | Dec Declaration
+data BlockItem = BlockDeclaration Declaration
+               | BlockStatement Statement
+            -- | BlockLabel Label -- C23
+            -- | BlockStatement UnlabeledStatement -- C23
   deriving (Show)
 
 newtype Block = Block [BlockItem]
   deriving (Show)
 
-data Statement = Return Exp
-               | Expression Exp
-               | If Exp Statement (Maybe Statement)
-               | Compound Block
-               | Goto Identifier
-               | Label Identifier
-               | Break Label
-               | Continue Label
-               | While Exp Statement Label
-               | DoWhile Statement Exp Label
-               | For ForInit (Maybe Exp) (Maybe Exp) Statement Label
-               | Null
+data Statement = LabeledStatement Label Statement
+               | UnlabeledStatement UnlabeledStatement
+  deriving (Show)
+
+data UnlabeledStatement = Expression Exp
+                        | Compound Block
+                        | If Exp Statement (Maybe Statement)
+                        | Switch Exp Statement
+                        | While Exp Statement Identifier
+                        | DoWhile Statement Exp Identifier
+                        | For ForInit (Maybe Exp) (Maybe Exp) Statement Identifier
+                        | Goto Identifier
+                        | Continue Identifier
+                        | Break Identifier
+                        | Return Exp
+                        | Null
+  deriving (Show)
+
+data Label = Label Identifier
+           | Case Constant
+           | Default
   deriving (Show)
 
 data ForInit = InitDecl Declaration
@@ -71,11 +80,17 @@ instance PrettyPrinter Block where
 
 instance PrettyPrinter BlockItem where
   pretty :: BlockItem -> Text
-  pretty (Stmt stmt) = pretty stmt
-  pretty (Dec dec)   = pretty dec
+  pretty (BlockStatement stmt)  = pretty stmt
+  pretty (BlockDeclaration dec) = pretty dec
+  -- pretty (BlockLabel label) = pretty label
 
 instance PrettyPrinter Statement where
   pretty :: Statement -> Text
+  pretty (LabeledStatement label stmt) = pretty label <> "\n" <> pretty stmt
+  pretty (UnlabeledStatement stmt)     = pretty stmt
+
+instance PrettyPrinter UnlabeledStatement where
+  pretty :: UnlabeledStatement -> Text
   pretty (Return expr) = ret <> expr' <> ";\n"
     where ret = "return "
           expr' = pretty expr
@@ -84,18 +99,24 @@ instance PrettyPrinter Statement where
   pretty (If cond expThen (Just expElse)) = "if (" <> pretty cond <> ")\n" <> identLines (pretty expThen) <> "\nelse\n" <> identLines (pretty expElse)
   pretty (Compound block) = "{\n" <> pretty block <> "\n}\n"
   pretty (Goto label) = "goto " <> pretty label <> ";\n"
-  pretty (Label label) = pretty label <> ":\n"
   pretty (Break _) = "break;\n"
   pretty (Continue _) = "continue;\n"
   pretty (While cond body _) = "while (" <> pretty cond <> ")" <> pretty body
   pretty (DoWhile body cond _) = "do" <> pretty body <> "while (" <> pretty cond <> ");\n"
   pretty (For ini cond post body _) = "for (" <> pretty ini <> "; " <> maybe "" pretty cond <> "; " <> maybe "" pretty post <> ")\n" <> pretty body
+  pretty (Switch expr body) = "switch (" <> pretty expr <> ")\n" <> pretty body
   pretty Null = ";\n"
 
 instance PrettyPrinter ForInit where
   pretty :: ForInit -> Text
   pretty (InitDecl decl) = pretty decl
   pretty (InitExp  expr) = maybe "" pretty expr
+
+instance PrettyPrinter Label where
+  pretty :: Label -> Text
+  pretty (Label label) = pretty label <> ":"
+  pretty Default       = "default:"
+  pretty (Case expr)   = "case " <> pretty expr <> ":"
 
 instance PrettyPrinter Declaration where
   pretty :: Declaration -> Text

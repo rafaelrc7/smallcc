@@ -31,7 +31,7 @@ data Environment = Environment { envFunctionName       :: Maybe Identifier
                                , envUpperScopesVarEnvs :: [IdentifierMap]
                                , envLabelCounter       :: Natural
                                , envLabelEnv           :: IdentifierMap
-                               , envCurrentLoopLabel   :: Maybe Label
+                               , envCurrentLoopLabel   :: Maybe Identifier
                                }
 
 emptyEnvironment :: Environment
@@ -168,31 +168,50 @@ instance StatementLabeler P.Block Block where
 
 instance VariableResolver P.BlockItem where
   resolveVariable :: P.BlockItem -> SemanticAnalyzerMonad P.BlockItem
-  resolveVariable (P.Stmt stmt) = P.Stmt <$> resolveVariable stmt
-  resolveVariable (P.Dec  dec)  = P.Dec  <$> resolveVariable dec
+  resolveVariable (P.BlockStatement stmt) = P.BlockStatement <$> resolveVariable stmt
+  resolveVariable (P.BlockDeclaration  dec)  = P.BlockDeclaration  <$> resolveVariable dec
 
 instance LabelResolver P.BlockItem where
   resolveLabelDeclaration :: P.BlockItem -> SemanticAnalyzerMonad P.BlockItem
-  resolveLabelDeclaration (P.Stmt stmt) = P.Stmt <$> resolveLabelDeclaration stmt
-  resolveLabelDeclaration (P.Dec dec)   = P.Dec  <$> resolveLabelDeclaration dec
+  resolveLabelDeclaration (P.BlockStatement stmt) = P.BlockStatement <$> resolveLabelDeclaration stmt
+  resolveLabelDeclaration (P.BlockDeclaration dec)   = P.BlockDeclaration  <$> resolveLabelDeclaration dec
 
   resolveLabelReference :: P.BlockItem -> SemanticAnalyzerMonad P.BlockItem
-  resolveLabelReference (P.Stmt stmt) = P.Stmt <$> resolveLabelReference stmt
-  resolveLabelReference (P.Dec dec)   = P.Dec  <$> resolveLabelReference dec
+  resolveLabelReference (P.BlockStatement stmt) = P.BlockStatement <$> resolveLabelReference stmt
+  resolveLabelReference (P.BlockDeclaration dec)   = P.BlockDeclaration  <$> resolveLabelReference dec
 
 instance StatementLabeler P.BlockItem BlockItem where
   labelStatement :: P.BlockItem -> SemanticAnalyzerMonad BlockItem
-  labelStatement (P.Stmt stmt) = Stmt <$> labelStatement stmt
-  labelStatement (P.Dec decl)  = Dec  <$> labelStatement decl
+  labelStatement (P.BlockStatement stmt) = BlockStatement <$> labelStatement stmt
+  labelStatement (P.BlockDeclaration decl)  = BlockDeclaration  <$> labelStatement decl
 
 instance VariableResolver P.Statement where
   resolveVariable :: P.Statement -> SemanticAnalyzerMonad P.Statement
+  resolveVariable (P.LabeledStatement label stmt) = P.LabeledStatement   <$> resolveVariable label <*> resolveVariable stmt
+  resolveVariable (P.UnlabeledStatement stmt)     = P.UnlabeledStatement <$> resolveVariable stmt
+
+instance LabelResolver P.Statement where
+  resolveLabelDeclaration :: P.Statement -> SemanticAnalyzerMonad P.Statement
+  resolveLabelDeclaration (P.LabeledStatement label stmt) = P.LabeledStatement   <$> resolveLabelDeclaration label <*> resolveLabelDeclaration stmt
+  resolveLabelDeclaration (P.UnlabeledStatement stmt)     = P.UnlabeledStatement <$> resolveLabelDeclaration stmt
+
+  resolveLabelReference :: P.Statement -> SemanticAnalyzerMonad P.Statement
+  resolveLabelReference (P.LabeledStatement label stmt) = P.LabeledStatement   <$> resolveLabelReference label <*> resolveLabelReference stmt
+  resolveLabelReference (P.UnlabeledStatement stmt)     = P.UnlabeledStatement <$> resolveLabelReference stmt
+
+instance StatementLabeler P.Statement Statement where
+  labelStatement :: P.Statement -> SemanticAnalyzerMonad Statement
+  labelStatement (P.LabeledStatement label stmt) = LabeledStatement   <$> labelStatement label <*> labelStatement stmt
+  labelStatement (P.UnlabeledStatement stmt)     = UnlabeledStatement <$> labelStatement stmt
+
+instance VariableResolver P.UnlabeledStatement where
+  resolveVariable :: P.UnlabeledStatement -> SemanticAnalyzerMonad P.UnlabeledStatement
   resolveVariable (P.Return expr)     = P.Return <$> resolveVariable expr
   resolveVariable (P.Expression expr) = P.Expression <$> resolveVariable expr
   resolveVariable (P.If cond conseq altern) = P.If <$> resolveVariable cond <*> resolveVariable conseq <*> (resolveVariable <$?> altern)
+  resolveVariable (P.Switch expr body) = P.Switch <$> resolveVariable expr <*> resolveVariable body
   resolveVariable (P.Compound block) = P.Compound <$> resolveVariable block
   resolveVariable P.Null = pure P.Null
-  resolveVariable (P.Label label) = pure $ P.Label label
   resolveVariable (P.Goto label) = pure $ P.Goto label
   resolveVariable P.Break = pure P.Break
   resolveVariable P.Continue = pure P.Continue
@@ -206,14 +225,14 @@ instance VariableResolver P.Statement where
        modify (\env -> env { envCurrentScopeVarEnv = currentScopeVarEnv, envUpperScopesVarEnvs = upperScopesVarEnvs })
        pure stmt
 
-instance LabelResolver P.Statement where
-  resolveLabelDeclaration :: P.Statement -> SemanticAnalyzerMonad P.Statement
+instance LabelResolver P.UnlabeledStatement where
+  resolveLabelDeclaration :: P.UnlabeledStatement -> SemanticAnalyzerMonad P.UnlabeledStatement
   resolveLabelDeclaration (P.Return expr)     = P.Return <$> resolveLabelDeclaration expr
   resolveLabelDeclaration (P.Expression expr) = P.Expression <$> resolveLabelDeclaration expr
   resolveLabelDeclaration (P.If cond conseq altern) = P.If <$> resolveLabelDeclaration cond <*> resolveLabelDeclaration conseq <*> (resolveLabelDeclaration <$?> altern)
+  resolveLabelDeclaration (P.Switch _ _) = undefined
   resolveLabelDeclaration (P.Compound block) = P.Compound <$> resolveLabelDeclaration block
   resolveLabelDeclaration P.Null = pure P.Null
-  resolveLabelDeclaration (P.Label label) = P.Label <$> resolveLabel label
   resolveLabelDeclaration (P.Goto label) = pure $ P.Goto label
   resolveLabelDeclaration P.Break = pure P.Break
   resolveLabelDeclaration P.Continue = pure P.Continue
@@ -221,13 +240,13 @@ instance LabelResolver P.Statement where
   resolveLabelDeclaration (P.DoWhile body cond) = P.DoWhile <$> resolveLabelDeclaration body <*> resolveLabelDeclaration cond
   resolveLabelDeclaration (P.For ini cond post body) = P.For <$> resolveLabelDeclaration ini <*> (resolveLabelDeclaration <$?> cond) <*> (resolveLabelDeclaration <$?> post) <*> resolveLabelDeclaration body
 
-  resolveLabelReference :: P.Statement -> SemanticAnalyzerMonad P.Statement
+  resolveLabelReference :: P.UnlabeledStatement -> SemanticAnalyzerMonad P.UnlabeledStatement
   resolveLabelReference (P.Return expr)     = P.Return <$> resolveLabelReference expr
   resolveLabelReference (P.Expression expr) = P.Expression <$> resolveLabelReference expr
   resolveLabelReference (P.If cond conseq altern) = P.If <$> resolveLabelReference cond <*> resolveLabelReference conseq <*> (resolveLabelReference <$?> altern)
+  resolveLabelReference (P.Switch _ _) = undefined
   resolveLabelReference (P.Compound block) = P.Compound <$> resolveLabelReference block
   resolveLabelReference P.Null = pure P.Null
-  resolveLabelReference (P.Label label) = pure $ P.Label label
   resolveLabelReference (P.Goto label) = P.Goto <$> getLabel label
   resolveLabelReference P.Break = pure P.Break
   resolveLabelReference P.Continue = pure P.Continue
@@ -235,14 +254,14 @@ instance LabelResolver P.Statement where
   resolveLabelReference (P.DoWhile body cond) = P.DoWhile <$> resolveLabelReference body <*> resolveLabelReference cond
   resolveLabelReference (P.For ini cond post body) = P.For <$> resolveLabelReference ini <*> (resolveLabelReference <$?> cond) <*> (resolveLabelReference <$?> post) <*> resolveLabelReference body
 
-instance StatementLabeler P.Statement Statement where
-  labelStatement :: P.Statement -> SemanticAnalyzerMonad Statement
+instance StatementLabeler P.UnlabeledStatement UnlabeledStatement where
+  labelStatement :: P.UnlabeledStatement -> SemanticAnalyzerMonad UnlabeledStatement
   labelStatement (P.Return expr) = Return <$> labelStatement expr
   labelStatement (P.Expression expr) = Expression <$> labelStatement expr
   labelStatement (P.If cond conseq altern) = If <$> labelStatement cond <*> labelStatement conseq <*> (labelStatement <$?> altern)
+  labelStatement (P.Switch _ _) = undefined
   labelStatement (P.Compound block) = Compound <$> labelStatement block
   labelStatement P.Null = pure Null
-  labelStatement (P.Label label) = pure $ Label label
   labelStatement (P.Goto label) = pure $ Goto label
   labelStatement P.Break = gets envCurrentLoopLabel >>= \case
     Nothing    -> throwError BreakOutsideLoop
@@ -290,6 +309,29 @@ instance StatementLabeler P.ForInit ForInit where
   labelStatement :: P.ForInit -> SemanticAnalyzerMonad ForInit
   labelStatement (P.InitDecl decl) = InitDecl <$> labelStatement decl
   labelStatement (P.InitExp expr)  = InitExp <$> (labelStatement <$?> expr)
+
+instance VariableResolver P.Label where
+  resolveVariable :: P.Label -> SemanticAnalyzerMonad P.Label
+  resolveVariable (P.Label label) = pure $ P.Label label
+  resolveVariable (P.Case expr)   = pure $ P.Case expr
+  resolveVariable P.Default       = pure P.Default
+
+instance LabelResolver P.Label where
+  resolveLabelDeclaration :: P.Label -> SemanticAnalyzerMonad P.Label
+  resolveLabelDeclaration (P.Label label) = P.Label <$> resolveLabel label
+  resolveLabelDeclaration (P.Case expr)   = pure $ P.Case expr
+  resolveLabelDeclaration P.Default       = pure P.Default
+
+  resolveLabelReference :: P.Label -> SemanticAnalyzerMonad P.Label
+  resolveLabelReference (P.Label label) = pure $ P.Label label
+  resolveLabelReference (P.Case expr)   = pure $ P.Case expr
+  resolveLabelReference P.Default       = pure P.Default
+
+instance StatementLabeler P.Label Label where
+  labelStatement :: P.Label -> SemanticAnalyzerMonad Label
+  labelStatement (P.Label label) = pure $ Label label
+  labelStatement (P.Case expr)   = pure $ Case expr
+  labelStatement P.Default       = pure Default
 
 instance VariableResolver P.Declaration where
   resolveVariable :: P.Declaration -> SemanticAnalyzerMonad P.Declaration

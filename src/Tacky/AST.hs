@@ -119,17 +119,22 @@ instance TackyGenerator SA.Block () where
 
 instance TackyGenerator SA.BlockItem () where
   translate :: SA.BlockItem -> TackyGenerationMonad ()
-  translate (SA.Stmt stmt) = translate stmt
-  translate (SA.Dec  decl) = translate decl
+  translate (SA.BlockStatement stmt)    = translate stmt
+  translate (SA.BlockDeclaration  decl) = translate decl
 
 instance TackyGenerator SA.Statement () where
   translate :: SA.Statement -> TackyGenerationMonad ()
+  translate (SA.LabeledStatement label stmt) = translate label >> translate stmt
+  translate (SA.UnlabeledStatement stmt)     = translate stmt
+
+instance TackyGenerator SA.UnlabeledStatement () where
+  translate :: SA.UnlabeledStatement -> TackyGenerationMonad ()
   translate SA.Null          = pure ()
   translate (SA.Return expr) = translate expr >>= \v -> tell [ Return v ]
   translate (SA.Expression expr) = void $ translate expr
   translate (SA.Goto label) = tell [ Jump label ]
-  translate (SA.Label label) = tell [ Label label ]
   translate (SA.Compound block) = translate block
+  translate (SA.Switch _ _) = undefined
   translate (SA.If cond conse Nothing) =
     do condVal <- translate cond
        endLabel <- newLabel (Just "end")
@@ -194,6 +199,11 @@ instance TackyGenerator SA.ForInit () where
     Just expr' -> void $ translate expr'
     Nothing    -> pure ()
   translate (SA.InitDecl decl) = translate decl
+
+instance TackyGenerator SA.Label () where
+  translate (SA.Label label) = tell [ Label label ]
+  translate (SA.Case _)      = tell [ ]
+  translate SA.Default       = tell [ ]
 
 instance TackyGenerator SA.Declaration () where
   translate :: SA.Declaration -> TackyGenerationMonad ()

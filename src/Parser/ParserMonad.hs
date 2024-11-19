@@ -20,11 +20,11 @@ import           Parser.AST           (AssignmentOperator (..),
                                        Declaration (..), Exp (..),
                                        ForInit (InitDecl, InitExp),
                                        FunctionDefinition (..), Identifier,
-                                       Precedence (Precedence), Program (..),
-                                       Statement (..),
+                                       Label (..), Precedence (Precedence),
+                                       Program (..), Statement (..),
                                        UnaryAssignmentOperator (PostDecrement, PostIncrement, PreDecrement, PreIncrement),
                                        UnaryOperator (Complement, Negate, Not, UnaryAssignmentOperator),
-                                       precedence)
+                                       UnlabeledStatement (..), precedence)
 import           Parser.Error         (ParserError, expectedEOF, unexpectedEOF,
                                        unexpectedToken)
 import           Pretty               (PrettyPrinter (pretty))
@@ -72,23 +72,28 @@ instance Parser Block where
 -- <block_item> ::= <statement> | <declaration>
 instance Parser BlockItem where
   parse :: ParserMonad BlockItem
-  parse = Dec  <$> parse
-      <|> Stmt <$> parse
+  parse = BlockDeclaration <$> parse
+      <|> BlockStatement   <$> parse
+      -- <|> BlockLabel       <$> parse
 
--- <statement> ::= "return" <exp> ";"
---               | <exp> ";"
---               | "if" "(" <exp> ")" <statement> ["else" <statement>]
---               | "goto" <identifier>
---               | <identifier> ":"
---               | <block>
---               | "break" ";"
---               | "continue" ";"
---               | "while" "(" <exp> ")" <statement>
---               | "do" <statement> "while" "(" <exp> ")" ";"
---               | "for" "(" <for-init> [<exp>] ";" [<exp>] ")" <statement>
---               | ";"
 instance Parser Statement where
   parse :: ParserMonad Statement
+  parse = LabeledStatement <$> parse <*> parse
+      <|> UnlabeledStatement <$> parse
+
+-- <unlabeled-statement> ::= "return" <exp> ";"
+--                       | <exp> ";"
+--                       | "if" "(" <exp> ")" <statement> ["else" <statement>]
+--                       | "goto" <identifier>
+--                       | <block>
+--                       | "break" ";"
+--                       | "continue" ";"
+--                       | "while" "(" <exp> ")" <statement>
+--                       | "do" <statement> "while" "(" <exp> ")" ";"
+--                       | "for" "(" <for-init> [<exp>] ";" [<exp>] ")" <statement>
+--                       | ";"
+instance Parser UnlabeledStatement where
+  parse :: ParserMonad UnlabeledStatement
   parse = expect TK.Semicolon $> Null
       <|> expect (TK.Keyword TK.Return) *> (Return <$> parse) <* expect TK.Semicolon
       <|> expect (TK.Keyword TK.If) *> (If <$> (expect TK.OpenParens *> parse <* expect TK.CloseParens) <*> parse <*> optional (expect (TK.Keyword TK.Else) *> parse))
@@ -98,7 +103,6 @@ instance Parser Statement where
       <|> expect (TK.Keyword TK.While) *> (While <$> (expect TK.OpenParens *> parse <* expect TK.CloseParens) <*> parse)
       <|> expect (TK.Keyword TK.Do) *> (DoWhile <$> parse <*> (expect (TK.Keyword TK.While) *> expect TK.OpenParens *> parse <* expect TK.CloseParens)) <* expect TK.Semicolon
       <|> expect (TK.Keyword TK.For) *> (For <$> (expect TK.OpenParens *> parse) <*> (optional parse <* expect TK.Semicolon) <*> (optional parse <* expect TK.CloseParens) <*> parse)
-      <|> (Label <$> parse) <* expect TK.Colon
       <|> Compound <$> parse
       <|> Expression <$> parse <* expect TK.Semicolon
 
@@ -107,6 +111,15 @@ instance Parser ForInit where
   parse :: ParserMonad ForInit
   parse = InitDecl <$> parse
       <|> InitExp  <$> optional parse <* expect TK.Semicolon
+
+-- <label> ::= <identifier> ":"
+--           | "case" <const> ":"
+--           | "default" ":"
+instance Parser Label where
+  parse :: ParserMonad Label
+  parse = expect (TK.Keyword TK.Case) *> (Case <$> parse) <* expect TK.Colon
+      <|> expect (TK.Keyword TK.Default) $> Default <* expect TK.Colon
+      <|> (Label <$> parse) <* expect TK.Colon
 
 -- <declaration> ::= "int" <identifier> ["=" <exp>] ";"
 instance Parser Declaration where

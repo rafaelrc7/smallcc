@@ -81,6 +81,7 @@ data Keyword = Int
              | Continue
              | Switch
              | Case
+             | Default
   deriving (Show, Eq)
 
 tokenType :: Token -> TokenType
@@ -100,6 +101,7 @@ scanKeyword "break"    = Just Break
 scanKeyword "continue" = Just Continue
 scanKeyword "switch"   = Just Switch
 scanKeyword "case"     = Just Case
+scanKeyword "default"  = Just Default
 scanKeyword _          = Nothing
 
 instance PrettyPrinter TokenType where
@@ -164,4 +166,5 @@ instance PrettyPrinter Keyword where
   pretty Continue = "continue"
   pretty Switch   = "switch"
   pretty Case     = "case"
+  pretty Default  = "default"
 
