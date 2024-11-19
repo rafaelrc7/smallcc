@@ -54,7 +54,7 @@ data UnlabeledStatement p = Expression (XExpression p) (Exp p)
 deriving instance (Forall Show p) => Show (UnlabeledStatement p)
 
 data Label p = Label   (XLabel   p) Identifier
-             | Case    (XCase    p) Constant
+             | Case    (XCase    p) (Exp p)
              | Default (XDefault p)
 deriving instance (Forall Show p) => Show (Label p)
 

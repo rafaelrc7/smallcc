@@ -144,6 +144,7 @@ instance Parser (UnlabeledStatement ParserPhase) where
       <|> expect (TK.Keyword TK.While) *> (While () <$> (expect TK.OpenParens *> parse <* expect TK.CloseParens) <*> parse)
       <|> expect (TK.Keyword TK.Do) *> (DoWhile () <$> parse <*> (expect (TK.Keyword TK.While) *> expect TK.OpenParens *> parse <* expect TK.CloseParens)) <* expect TK.Semicolon
       <|> expect (TK.Keyword TK.For) *> (For () <$> (expect TK.OpenParens *> parse) <*> (optional parse <* expect TK.Semicolon) <*> (optional parse <* expect TK.CloseParens) <*> parse)
+      <|> expect (TK.Keyword TK.Switch) *> (Switch () <$> (expect TK.OpenParens *> parse <* expect TK.CloseParens) <*> parse)
       <|> Compound () <$> parse
       <|> Expression () <$> parse <* expect TK.Semicolon
 
