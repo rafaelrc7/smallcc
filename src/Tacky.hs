@@ -1,8 +1,10 @@
 module Tacky where
 
-import qualified SemanticAnalyzer.AST as SA
-import           Tacky.AST
+import qualified Parser.AST                             as P
+import           SemanticAnalyzer.SemanticAnalyzerMonad (LabelResolvingPhase)
+import           Tacky.AST                              (Program,
+                                                         translateProgram)
 
-translateTacky :: SA.Program -> Program
+translateTacky :: P.Program LabelResolvingPhase -> Program
 translateTacky = translateProgram
 

@@ -1,68 +1,77 @@
+{-# LANGUAGE ConstraintKinds      #-}
+{-# LANGUAGE FlexibleContexts     #-}
 {-# LANGUAGE InstanceSigs         #-}
 {-# LANGUAGE OverloadedStrings    #-}
+{-# LANGUAGE StandaloneDeriving   #-}
+{-# LANGUAGE TypeFamilies         #-}
 {-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Parser.AST where
 
 import           Data.Text       (Text)
 import qualified Data.Text       as T
+import           GHC.Types       (Constraint, Type)
 import           Numeric.Natural (Natural)
 import           Pretty          (PrettyPrinter (..), identLines)
 
 type Identifier = Text
 
-newtype Program = Program FunctionDefinition
-  deriving (Show)
 
-data FunctionDefinition = Function Identifier Block
-  deriving (Show)
+-- AST Definition --
 
-data BlockItem = BlockDeclaration Declaration
-               | BlockStatement Statement
+newtype Program p = Program (FunctionDefinition p)
+deriving instance (Forall Show p) => Show (Program p)
+
+data FunctionDefinition p = Function Identifier (Block p)
+deriving instance (Forall Show p) => Show (FunctionDefinition p)
+
+data BlockItem p = BlockDeclaration (Declaration p)
+                 | BlockStatement   (Statement p)
             -- | BlockLabel Label -- C23
             -- | BlockStatement UnlabeledStatement -- C23
-  deriving (Show)
+deriving instance (Forall Show p) => Show (BlockItem p)
 
-newtype Block = Block [BlockItem]
-  deriving (Show)
+newtype Block p = Block [BlockItem p]
+deriving instance (Forall Show p) => Show (Block p)
 
-data Statement = LabeledStatement Label Statement
-               | UnlabeledStatement UnlabeledStatement
-  deriving (Show)
+data Statement p = LabeledStatement   (Label p) (Statement p)
+                 | UnlabeledStatement (UnlabeledStatement p)
+deriving instance (Forall Show p) => Show (Statement p)
 
-data UnlabeledStatement = Expression Exp
-                        | Compound Block
-                        | If Exp Statement (Maybe Statement)
-                        | Switch Exp Statement
-                        | While Exp Statement
-                        | DoWhile Statement Exp
-                        | For ForInit (Maybe Exp) (Maybe Exp) Statement
-                        | Goto Identifier
-                        | Continue
-                        | Break
-                        | Return Exp
-                        | Null
-  deriving (Show)
+data UnlabeledStatement p = Expression (XExpression p) (Exp p)
+                          | Compound   (XCompound   p) (Block p)
+                          | If         (XIf         p) (Exp p) (Statement p) (Maybe (Statement p))
+                          | Switch     (XSwitch     p) (Exp p) (Statement p)
+                          | While      (XWhile      p) (Exp p) (Statement p)
+                          | DoWhile    (XDoWhile    p) (Statement p) (Exp p)
+                          | For        (XFor        p) (ForInit p) (Maybe (Exp p)) (Maybe (Exp p)) (Statement p)
+                          | Goto       (XGoto       p) Identifier
+                          | Continue   (XContinue   p)
+                          | Break      (XBreak      p)
+                          | Return     (XReturn     p) (Exp p)
+                          | Null       (XNull       p)
+deriving instance (Forall Show p) => Show (UnlabeledStatement p)
 
-data Label = Label Identifier
-           | Case Constant
-           | Default
-  deriving (Show)
+data Label p = Label   (XLabel   p) Identifier
+             | Case    (XCase    p) Constant
+             | Default (XDefault p)
+deriving instance (Forall Show p) => Show (Label p)
 
-data ForInit = InitDecl Declaration
-             | InitExp  (Maybe Exp)
-  deriving (Show)
+data ForInit p = InitDecl (Declaration p)
+               | InitExp  (Maybe (Exp p))
+deriving instance (Forall Show p) => Show (ForInit p)
 
-data Declaration = Declaration Identifier (Maybe Exp)
-  deriving (Show)
+data Declaration p = Declaration (XDeclaration p) Identifier (Maybe (Exp p))
+deriving instance (Forall Show p) => Show (Declaration p)
 
-data Exp = Constant Constant
-         | Var Identifier
-         | Unary UnaryOperator Exp
-         | Binary BinaryOperator Exp Exp
-         | Assignment Exp AssignmentOperator Exp
-         | Conditional Exp Exp Exp
-  deriving (Show)
+data Exp p = Constant    (XConstant    p) Constant
+           | Var         (XVar         p) Identifier
+           | Unary       (XUnary       p) UnaryOperator (Exp p)
+           | Binary      (XBinary      p) BinaryOperator (Exp p) (Exp p)
+           | Assignment  (XAssignment  p) (Exp p) AssignmentOperator (Exp p)
+           | Conditional (XConditional p) (Exp p) (Exp p) (Exp p)
+deriving instance (Forall Show p) => Show (Exp p)
 
 newtype Constant = CInt Int
   deriving (Show)
@@ -112,6 +121,9 @@ data AssignmentOperator = Assign
                         | BitShiftRightAssign
   deriving (Show)
 
+
+-- Binary Operator Precedence --
+
 data Associativity = LeftAssociative | RightAssociative
 
 data Precedence = Precedence Associativity Natural
@@ -137,74 +149,105 @@ precedence Multiply       = Precedence LeftAssociative  50
 precedence Divide         = Precedence LeftAssociative  50
 precedence Remainder      = Precedence LeftAssociative  50
 
-instance PrettyPrinter Program where
-  pretty :: Program -> Text
+
+-- AST Decorators --
+
+type Forall (c :: Type -> Constraint) p = (c (XExpression p), c (XCompound p), c (XIf p), c (XSwitch p), c (XWhile p), c (XDoWhile p), c (XFor p), c (XGoto p), c (XContinue p), c (XBreak p), c (XReturn p), c (XNull p), c (XLabel p), c (XCase p), c (XDefault p), c (XConstant p), c (XVar p), c (XUnary p), c (XBinary p), c (XAssignment p), c (XConditional p), c (XDeclaration p))
+
+type family XExpression  p
+type family XCompound    p
+type family XIf          p
+type family XSwitch      p
+type family XWhile       p
+type family XDoWhile     p
+type family XFor         p
+type family XGoto        p
+type family XContinue    p
+type family XBreak       p
+type family XReturn      p
+type family XNull        p
+type family XLabel       p
+type family XCase        p
+type family XDefault     p
+type family XConstant    p
+type family XVar         p
+type family XUnary       p
+type family XBinary      p
+type family XAssignment  p
+type family XConditional p
+type family XDeclaration p
+
+
+-- PrettyPrinter Instance --
+
+instance PrettyPrinter (Program p) where
+  pretty :: Program p -> Text
   pretty (Program f) = "Program\n" <>  f'
     where f' = identLines $ pretty f
 
-instance PrettyPrinter FunctionDefinition where
-  pretty :: FunctionDefinition -> Text
+instance PrettyPrinter (FunctionDefinition p) where
+  pretty :: FunctionDefinition p -> Text
   pretty (Function name body) = "Function '" <> name <> "'\n" <> pretty body <> "\n"
 
-instance PrettyPrinter Block where
-  pretty :: Block -> Text
+instance PrettyPrinter (Block p) where
+  pretty :: Block p -> Text
   pretty (Block blockItens) = T.concat $ map (identLines . pretty) blockItens
 
-instance PrettyPrinter BlockItem where
-  pretty :: BlockItem -> Text
+instance PrettyPrinter (BlockItem p) where
+  pretty :: BlockItem p -> Text
   pretty (BlockStatement stmt)  = pretty stmt
   pretty (BlockDeclaration dec) = pretty dec
   -- pretty (BlockLabel label) = pretty label
 
-instance PrettyPrinter Statement where
-  pretty :: Statement -> Text
+instance PrettyPrinter (Statement p) where
+  pretty :: Statement p -> Text
   pretty (LabeledStatement label stmt) = pretty label <> "\n" <> pretty stmt
   pretty (UnlabeledStatement stmt)     = pretty stmt
 
-instance PrettyPrinter UnlabeledStatement where
-  pretty :: UnlabeledStatement -> Text
-  pretty (Return expr) = ret <> expr' <> ";\n"
+instance PrettyPrinter (UnlabeledStatement p) where
+  pretty :: UnlabeledStatement p -> Text
+  pretty (Return _ expr) = ret <> expr' <> ";\n"
     where ret = "return "
           expr' = pretty expr
-  pretty (Expression expr) = pretty expr <> ";\n"
-  pretty (If cond expThen Nothing) = "if (" <> pretty cond <> ")\n" <> identLines (pretty expThen)
-  pretty (If cond expThen (Just expElse)) = "if (" <> pretty cond <> ")\n" <> identLines (pretty expThen) <> "\nelse\n" <> identLines (pretty expElse)
-  pretty (Compound block) = "{\n" <> pretty block <> "\n}\n"
-  pretty (Goto label) = "goto " <> pretty label <> ";\n"
-  pretty Break = "break;\n"
-  pretty Continue = "continue;\n"
-  pretty (While cond body) = "while (" <> pretty cond <> ")" <> pretty body
-  pretty (DoWhile body cond) = "do" <> pretty body <> "while (" <> pretty cond <> ");\n"
-  pretty (For ini cond post body) = "for (" <> pretty ini <> "; " <> maybe "" pretty cond <> "; " <> maybe "" pretty post <> ")\n" <> pretty body
-  pretty (Switch expr body) = "switch (" <> pretty expr <> ")\n" <> pretty body
-  pretty Null = ";\n"
+  pretty (Expression _ expr) = pretty expr <> ";\n"
+  pretty (If _ cond expThen Nothing) = "if (" <> pretty cond <> ")\n" <> identLines (pretty expThen)
+  pretty (If _ cond expThen (Just expElse)) = "if (" <> pretty cond <> ")\n" <> identLines (pretty expThen) <> "\nelse\n" <> identLines (pretty expElse)
+  pretty (Compound _ block) = "{\n" <> pretty block <> "\n}\n"
+  pretty (Goto _ label) = "goto " <> pretty label <> ";\n"
+  pretty (Break _) = "break;\n"
+  pretty (Continue _) = "continue;\n"
+  pretty (While _ cond body) = "while (" <> pretty cond <> ")" <> pretty body
+  pretty (DoWhile _ body cond) = "do" <> pretty body <> "while (" <> pretty cond <> ");\n"
+  pretty (For _ ini cond post body) = "for (" <> pretty ini <> "; " <> maybe "" pretty cond <> "; " <> maybe "" pretty post <> ")\n" <> pretty body
+  pretty (Switch _ expr body) = "switch (" <> pretty expr <> ")\n" <> pretty body
+  pretty (Null _) = ";\n"
 
-instance PrettyPrinter Label where
-  pretty :: Label -> Text
-  pretty (Label label) = pretty label <> ":"
-  pretty Default       = "default:"
-  pretty (Case expr)   = "case " <> pretty expr <> ":"
+instance PrettyPrinter (Label p) where
+  pretty :: Label p -> Text
+  pretty (Label _ label) = pretty label <> ":"
+  pretty (Default _)     = "default:"
+  pretty (Case _ expr)   = "case " <> pretty expr <> ":"
 
-instance PrettyPrinter ForInit where
-  pretty :: ForInit -> Text
+instance PrettyPrinter (ForInit p) where
+  pretty :: ForInit p -> Text
   pretty (InitDecl decl) = pretty decl
   pretty (InitExp  expr) = maybe "" pretty expr
 
-instance PrettyPrinter Declaration where
-  pretty :: Declaration -> Text
-  pretty (Declaration name Nothing) = "int " <> name <> ";\n";
-  pretty (Declaration name (Just i)) = "int " <> name <> " = " <> pretty i <> ";\n";
+instance PrettyPrinter (Declaration p) where
+  pretty :: Declaration p -> Text
+  pretty (Declaration _ name Nothing) = "int " <> name <> ";\n";
+  pretty (Declaration _ name (Just i)) = "int " <> name <> " = " <> pretty i <> ";\n";
 
-instance PrettyPrinter Exp where
-  pretty :: Exp -> Text
-  pretty (Constant val) = pretty val
-  pretty (Var var) = var
-  pretty (Unary op@(UnaryAssignmentOperator PostDecrement) expr) = "(" <> pretty expr <> pretty op <> ")"
-  pretty (Unary op@(UnaryAssignmentOperator PostIncrement) expr) = "(" <> pretty expr <> pretty op <> ")"
-  pretty (Unary op expr) = "(" <> pretty op <> pretty expr <> ")"
-  pretty (Binary op exprl exprr) = "(" <> T.intercalate " " [pretty exprl, pretty op, pretty exprr] <> ")"
-  pretty (Assignment exprl op exprr) = "(" <> T.intercalate " " [pretty exprl, pretty op, pretty exprr] <> ")"
-  pretty (Conditional cond exp1 exp2) = "(" <> pretty cond <> " ? " <> pretty exp1 <> " : " <> pretty exp2 <> ")"
+instance PrettyPrinter (Exp p) where
+  pretty :: Exp p -> Text
+  pretty (Constant _ val) = pretty val
+  pretty (Var _ var) = var
+  pretty (Unary _ op@(UnaryAssignmentOperator PostDecrement) expr) = "(" <> pretty expr <> pretty op <> ")"
+  pretty (Unary _ op@(UnaryAssignmentOperator PostIncrement) expr) = "(" <> pretty expr <> pretty op <> ")"
+  pretty (Unary _ op expr) = "(" <> pretty op <> pretty expr <> ")"
+  pretty (Binary _ op exprl exprr) = "(" <> T.intercalate " " [pretty exprl, pretty op, pretty exprr] <> ")"
+  pretty (Assignment _ exprl op exprr) = "(" <> T.intercalate " " [pretty exprl, pretty op, pretty exprr] <> ")"
+  pretty (Conditional _ cond exp1 exp2) = "(" <> pretty cond <> " ? " <> pretty exp1 <> " : " <> pretty exp2 <> ")"
 
 instance PrettyPrinter Constant where
   pretty :: Constant -> Text

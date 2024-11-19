@@ -2,14 +2,15 @@ module SemanticAnalyzer where
 
 import           Control.Monad.Except                   (runExcept)
 import           Control.Monad.State                    (evalStateT)
-import qualified Parser.AST                             as P
-import           SemanticAnalyzer.AST                   (Program)
+import           Parser.AST                             (Program)
+import           Parser.ParserMonad                     (ParserPhase)
 import           SemanticAnalyzer.Error                 (SemanticError)
 import           SemanticAnalyzer.SemanticAnalyzerMonad (LabelResolver (resolveLabelDeclaration, resolveLabelReference),
-                                                         StatementLabeler (labelStatement),
+                                                         LabelResolvingPhase,
                                                          VariableResolver (resolveVariable),
+                                                         VariableResolvingPhase,
                                                          emptyEnvironment)
 
-semanticAnalyze :: P.Program -> Either SemanticError Program
-semanticAnalyze prog = runExcept $ evalStateT (resolveVariable prog >>= resolveLabelDeclaration >>= resolveLabelReference >>= labelStatement) emptyEnvironment
+semanticAnalyze :: Program ParserPhase -> Either (SemanticError VariableResolvingPhase) (Program LabelResolvingPhase)
+semanticAnalyze prog = runExcept $ evalStateT (resolveVariable prog >>= resolveLabelDeclaration >>= resolveLabelReference) emptyEnvironment
 

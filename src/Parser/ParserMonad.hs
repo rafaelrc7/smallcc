@@ -1,7 +1,8 @@
-{-# LANGUAGE InstanceSigs         #-}
-{-# LANGUAGE LambdaCase           #-}
-{-# LANGUAGE OverloadedStrings    #-}
-{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE InstanceSigs      #-}
+{-# LANGUAGE LambdaCase        #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeFamilies      #-}
 
 module Parser.ParserMonad where
 
@@ -24,10 +25,47 @@ import           Parser.AST           (AssignmentOperator (..),
                                        Program (..), Statement (..),
                                        UnaryAssignmentOperator (PostDecrement, PostIncrement, PreDecrement, PreIncrement),
                                        UnaryOperator (Complement, Negate, Not, UnaryAssignmentOperator),
-                                       UnlabeledStatement (..), precedence)
+                                       UnlabeledStatement (..), XAssignment,
+                                       XBinary, XBreak, XCase, XCompound,
+                                       XConditional, XConstant, XContinue,
+                                       XDeclaration, XDefault, XDoWhile,
+                                       XExpression, XFor, XGoto, XIf, XLabel,
+                                       XNull, XReturn, XSwitch, XUnary, XVar,
+                                       XWhile, precedence)
 import           Parser.Error         (ParserError, expectedEOF, unexpectedEOF,
                                        unexpectedToken)
 import           Pretty               (PrettyPrinter (pretty))
+
+
+-- ParserPhase specific decorators --
+
+data ParserPhase
+
+type instance XExpression  ParserPhase = ()
+type instance XCompound    ParserPhase = ()
+type instance XIf          ParserPhase = ()
+type instance XSwitch      ParserPhase = ()
+type instance XWhile       ParserPhase = ()
+type instance XDoWhile     ParserPhase = ()
+type instance XFor         ParserPhase = ()
+type instance XGoto        ParserPhase = ()
+type instance XContinue    ParserPhase = ()
+type instance XBreak       ParserPhase = ()
+type instance XReturn      ParserPhase = ()
+type instance XNull        ParserPhase = ()
+type instance XLabel       ParserPhase = ()
+type instance XCase        ParserPhase = ()
+type instance XDefault     ParserPhase = ()
+type instance XConstant    ParserPhase = ()
+type instance XVar         ParserPhase = ()
+type instance XUnary       ParserPhase = ()
+type instance XBinary      ParserPhase = ()
+type instance XAssignment  ParserPhase = ()
+type instance XConditional ParserPhase = ()
+type instance XDeclaration ParserPhase = ()
+
+
+-- ParserMonad --
 
 type ParserState = [Token]
 type ParserMonad a = StateT ParserState (Except ParserError) a
@@ -51,33 +89,36 @@ expect s = get >>= \case
          | otherwise -> throwError $ unexpectedToken s' t
   where s' = pretty s
 
+
+-- Parsing Grammar --
+
 -- <program> ::= <function>
-instance Parser Program where
-  parse :: ParserMonad Program
+instance Parser (Program ParserPhase) where
+  parse :: ParserMonad (Program ParserPhase)
   parse = Program <$> parse <* expectEOF
 
 -- <function> ::= "int" <identifier> "(" "void" ")" <block>
-instance Parser FunctionDefinition where
-  parse :: ParserMonad FunctionDefinition
+instance Parser (FunctionDefinition ParserPhase) where
+  parse :: ParserMonad (FunctionDefinition ParserPhase)
   parse = do expect (TK.Keyword TK.Int)
              name <- parse
              mapM_ expect [ TK.OpenParens, TK.Keyword TK.Void, TK.CloseParens ]
              Function name <$> parse
 
 -- <block> ::= "{" {<block-item>} "}"
-instance Parser Block where
-  parse :: ParserMonad Block
+instance Parser (Block ParserPhase) where
+  parse :: ParserMonad (Block ParserPhase)
   parse = expect TK.OpenBrace *> (Block <$> many parse) <* expect TK.CloseBrace
 
 -- <block_item> ::= <statement> | <declaration>
-instance Parser BlockItem where
-  parse :: ParserMonad BlockItem
+instance Parser (BlockItem ParserPhase) where
+  parse :: ParserMonad (BlockItem ParserPhase)
   parse = BlockDeclaration <$> parse
       <|> BlockStatement   <$> parse
-      -- <|> BlockLabel       <$> parse
 
-instance Parser Statement where
-  parse :: ParserMonad Statement
+-- <statement> ::= <label> ":" <statement> | <unlabeled-statement>
+instance Parser (Statement ParserPhase) where
+  parse :: ParserMonad (Statement ParserPhase)
   parse = LabeledStatement <$> parse <*> parse
       <|> UnlabeledStatement <$> parse
 
@@ -92,63 +133,63 @@ instance Parser Statement where
 --                       | "do" <statement> "while" "(" <exp> ")" ";"
 --                       | "for" "(" <for-init> [<exp>] ";" [<exp>] ")" <statement>
 --                       | ";"
-instance Parser UnlabeledStatement where
-  parse :: ParserMonad UnlabeledStatement
-  parse = expect TK.Semicolon $> Null
-      <|> expect (TK.Keyword TK.Return) *> (Return <$> parse) <* expect TK.Semicolon
-      <|> expect (TK.Keyword TK.If) *> (If <$> (expect TK.OpenParens *> parse <* expect TK.CloseParens) <*> parse <*> optional (expect (TK.Keyword TK.Else) *> parse))
-      <|> expect (TK.Keyword TK.Goto) *> (Goto <$> parse) <* expect TK.Semicolon
-      <|> expect (TK.Keyword TK.Break) $> Break <* expect TK.Semicolon
-      <|> expect (TK.Keyword TK.Continue) $> Continue <* expect TK.Semicolon
-      <|> expect (TK.Keyword TK.While) *> (While <$> (expect TK.OpenParens *> parse <* expect TK.CloseParens) <*> parse)
-      <|> expect (TK.Keyword TK.Do) *> (DoWhile <$> parse <*> (expect (TK.Keyword TK.While) *> expect TK.OpenParens *> parse <* expect TK.CloseParens)) <* expect TK.Semicolon
-      <|> expect (TK.Keyword TK.For) *> (For <$> (expect TK.OpenParens *> parse) <*> (optional parse <* expect TK.Semicolon) <*> (optional parse <* expect TK.CloseParens) <*> parse)
-      <|> Compound <$> parse
-      <|> Expression <$> parse <* expect TK.Semicolon
+instance Parser (UnlabeledStatement ParserPhase) where
+  parse :: ParserMonad (UnlabeledStatement ParserPhase)
+  parse = expect TK.Semicolon $> Null ()
+      <|> expect (TK.Keyword TK.Return) *> (Return () <$> parse) <* expect TK.Semicolon
+      <|> expect (TK.Keyword TK.If) *> (If () <$> (expect TK.OpenParens *> parse <* expect TK.CloseParens) <*> parse <*> optional (expect (TK.Keyword TK.Else) *> parse))
+      <|> expect (TK.Keyword TK.Goto) *> (Goto () <$> parse) <* expect TK.Semicolon
+      <|> expect (TK.Keyword TK.Break) $> Break () <* expect TK.Semicolon
+      <|> expect (TK.Keyword TK.Continue) $> Continue () <* expect TK.Semicolon
+      <|> expect (TK.Keyword TK.While) *> (While () <$> (expect TK.OpenParens *> parse <* expect TK.CloseParens) <*> parse)
+      <|> expect (TK.Keyword TK.Do) *> (DoWhile () <$> parse <*> (expect (TK.Keyword TK.While) *> expect TK.OpenParens *> parse <* expect TK.CloseParens)) <* expect TK.Semicolon
+      <|> expect (TK.Keyword TK.For) *> (For () <$> (expect TK.OpenParens *> parse) <*> (optional parse <* expect TK.Semicolon) <*> (optional parse <* expect TK.CloseParens) <*> parse)
+      <|> Compound () <$> parse
+      <|> Expression () <$> parse <* expect TK.Semicolon
 
 -- <for-init> ::= <declaration> | <exp> ";"
-instance Parser ForInit where
-  parse :: ParserMonad ForInit
+instance Parser (ForInit ParserPhase) where
+  parse :: ParserMonad (ForInit ParserPhase)
   parse = InitDecl <$> parse
       <|> InitExp  <$> optional parse <* expect TK.Semicolon
 
 -- <label> ::= <identifier> ":"
 --           | "case" <const> ":"
 --           | "default" ":"
-instance Parser Label where
-  parse :: ParserMonad Label
-  parse = expect (TK.Keyword TK.Case) *> (Case <$> parse) <* expect TK.Colon
-      <|> expect (TK.Keyword TK.Default) $> Default <* expect TK.Colon
-      <|> (Label <$> parse) <* expect TK.Colon
+instance Parser (Label ParserPhase) where
+  parse :: ParserMonad (Label ParserPhase)
+  parse = expect (TK.Keyword TK.Case) *> (Case () <$> parse) <* expect TK.Colon
+      <|> expect (TK.Keyword TK.Default) $> Default () <* expect TK.Colon
+      <|> (Label () <$> parse) <* expect TK.Colon
 
 -- <declaration> ::= "int" <identifier> ["=" <exp>] ";"
-instance Parser Declaration where
-  parse :: ParserMonad Declaration
-  parse = expect (TK.Keyword TK.Int) *> (Declaration <$> parse <*> optional (expect TK.Equals *> parse)) <* expect TK.Semicolon
+instance Parser (Declaration ParserPhase) where
+  parse :: ParserMonad (Declaration ParserPhase)
+  parse = expect (TK.Keyword TK.Int) *> (Declaration () <$> parse <*> optional (expect TK.Equals *> parse)) <* expect TK.Semicolon
 
 -- <exp> ::= <assignment-exp>
-instance Parser Exp where
-  parse :: ParserMonad Exp
+instance Parser (Exp ParserPhase) where
+  parse :: ParserMonad (Exp ParserPhase)
   parse = parseAssignmentExp
 
 -- <assignment-exp> ::= <conditional-exp> | <unary-exp> <assignment-op> <assignment-exp>
-parseAssignmentExp :: ParserMonad Exp
-parseAssignmentExp = Assignment <$> parseConditionalExp <*> parse <*> parseAssignmentExp
+parseAssignmentExp :: ParserMonad (Exp ParserPhase)
+parseAssignmentExp = Assignment () <$> parseConditionalExp <*> parse <*> parseAssignmentExp
                  <|> parseConditionalExp
 
 -- <conditional-exp> ::= <binary-exp> | <binary-exp> "?" <exp> ":" <conditional-exp>
-parseConditionalExp :: ParserMonad Exp
-parseConditionalExp = Conditional <$> parseBinaryExp <*> (expect TK.QuestionMark *> parse) <*> (expect TK.Colon *> parseConditionalExp)
+parseConditionalExp :: ParserMonad (Exp ParserPhase)
+parseConditionalExp = Conditional () <$> parseBinaryExp <*> (expect TK.QuestionMark *> parse) <*> (expect TK.Colon *> parseConditionalExp)
                   <|> parseBinaryExp
 
 -- Parses binary operator expressions. It uses the operator precedence and associativity to properly parse the expression
 -- <binary-exp> ::= <unary-exp> | <unary-exp> <binop> <unary-exp>
-parseBinaryExp :: ParserMonad Exp
+parseBinaryExp :: ParserMonad (Exp ParserPhase)
 parseBinaryExp = precedenceClimb 0
-  where precedenceClimb :: Natural -> ParserMonad Exp
+  where precedenceClimb :: Natural -> ParserMonad (Exp ParserPhase)
         precedenceClimb basePrec =
           parseUnaryExp >>= \left -> catchST (const $ return left) (precedenceClimb' basePrec left)
-          where precedenceClimb' :: Natural -> Exp -> ParserMonad Exp
+          where precedenceClimb' :: Natural -> Exp ParserPhase -> ParserMonad (Exp ParserPhase)
                 precedenceClimb' minPrec left =
                   catchST (const $ return left) $
                   do st <- get
@@ -161,30 +202,30 @@ parseBinaryExp = precedenceClimb 0
                                 LeftAssociative  -> opPrecedence + 1
                                 RightAssociative -> opPrecedence
                           right <- precedenceClimb nextPrecedence
-                          precedenceClimb' minPrec (Binary op left right)
+                          precedenceClimb' minPrec (Binary () op left right)
 
 -- <unary-exp> ::= <postfix-exp> | <unary-op> <unary-exp>
 -- <unary-op> ::= "-" | "~" | "!" | "++" | "--"
-parseUnaryExp :: ParserMonad Exp
-parseUnaryExp = expect TK.Decrement  *> (Unary (UnaryAssignmentOperator PreDecrement) <$> parseUnaryExp)
-            <|> expect TK.Increment  *> (Unary (UnaryAssignmentOperator PreIncrement) <$> parseUnaryExp)
-            <|> expect TK.Minus      *> (Unary Negate                                 <$> parseUnaryExp)
-            <|> expect TK.Complement *> (Unary Complement                             <$> parseUnaryExp)
-            <|> expect TK.Not        *> (Unary Not                                    <$> parseUnaryExp)
+parseUnaryExp :: ParserMonad (Exp ParserPhase)
+parseUnaryExp = expect TK.Decrement  *> (Unary () (UnaryAssignmentOperator PreDecrement) <$> parseUnaryExp)
+            <|> expect TK.Increment  *> (Unary () (UnaryAssignmentOperator PreIncrement) <$> parseUnaryExp)
+            <|> expect TK.Minus      *> (Unary () Negate                                 <$> parseUnaryExp)
+            <|> expect TK.Complement *> (Unary () Complement                             <$> parseUnaryExp)
+            <|> expect TK.Not        *> (Unary () Not                                    <$> parseUnaryExp)
             <|> parsePostfixExp
 
 -- <postfix-exp> ::= <primary-exp> | <postfix-exp> "++" | <postfix-exp> "--"
-parsePostfixExp :: ParserMonad Exp
+parsePostfixExp :: ParserMonad (Exp ParserPhase)
 parsePostfixExp = parsePrimaryExp >>= consumePostfix
-  where consumePostfix :: Exp -> ParserMonad Exp
-        consumePostfix expr = expect TK.Decrement *> consumePostfix (Unary (UnaryAssignmentOperator PostDecrement) expr)
-                          <|> expect TK.Increment *> consumePostfix (Unary (UnaryAssignmentOperator PostIncrement) expr)
+  where consumePostfix :: Exp ParserPhase -> ParserMonad (Exp ParserPhase)
+        consumePostfix expr = expect TK.Decrement *> consumePostfix (Unary () (UnaryAssignmentOperator PostDecrement) expr)
+                          <|> expect TK.Increment *> consumePostfix (Unary () (UnaryAssignmentOperator PostIncrement) expr)
                           <|> pure expr
 
 -- <primary-exp> ::= <identifier> | <int-constant> | "(" <exp> ")"
-parsePrimaryExp :: ParserMonad Exp
-parsePrimaryExp = Var      <$> parse
-              <|> Constant <$> parse
+parsePrimaryExp :: ParserMonad (Exp ParserPhase)
+parsePrimaryExp = Var      () <$> parse
+              <|> Constant () <$> parse
               <|> expect TK.OpenParens *> parse <* expect TK.CloseParens
 
 -- <binop> ::= "-" | "+" | "*" | "/" | "%" | "&&" | "||"

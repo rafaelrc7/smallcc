@@ -81,7 +81,6 @@ library
     Parser.AST
     Parser.Error
     Parser.ParserMonad
-    SemanticAnalyzer.AST
     SemanticAnalyzer.Error
     SemanticAnalyzer.SemanticAnalyzerMonad
     Tacky.AST
@@ -95,6 +94,7 @@ library
     , containers  ^>=0.6.7
     , mtl         ^>=2.3.1
     , text        ^>=2.0.2
+    , ghc-prim
 
   -- Directories containing source files.
   hs-source-dirs:   src
