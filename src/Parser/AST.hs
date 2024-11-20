@@ -54,7 +54,7 @@ data UnlabeledStatement p = Expression (XExpression p) (Exp p)
 deriving instance (Forall Show p) => Show (UnlabeledStatement p)
 
 data Label p = Label   (XLabel   p) Identifier
-             | Case    (XCase    p) (Exp p)
+             | Case    (XCase    p) (XCaseV p)
              | Default (XDefault p)
 deriving instance (Forall Show p) => Show (Label p)
 
@@ -74,7 +74,7 @@ data Exp p = Constant    (XConstant    p) Constant
 deriving instance (Forall Show p) => Show (Exp p)
 
 newtype Constant = CInt Int
-  deriving (Show)
+  deriving (Show, Eq, Ord)
 
 data UnaryOperator = Complement
                    | Negate
@@ -152,7 +152,7 @@ precedence Remainder      = Precedence LeftAssociative  50
 
 -- AST Decorators --
 
-type Forall (c :: Type -> Constraint) p = (c (XExpression p), c (XCompound p), c (XIf p), c (XSwitch p), c (XWhile p), c (XDoWhile p), c (XFor p), c (XGoto p), c (XContinue p), c (XBreak p), c (XReturn p), c (XNull p), c (XLabel p), c (XCase p), c (XDefault p), c (XConstant p), c (XVar p), c (XUnary p), c (XBinary p), c (XAssignment p), c (XConditional p), c (XDeclaration p))
+type Forall (c :: Type -> Constraint) p = (c (XExpression p), c (XCompound p), c (XIf p), c (XSwitch p), c (XWhile p), c (XDoWhile p), c (XFor p), c (XGoto p), c (XContinue p), c (XBreak p), c (XReturn p), c (XNull p), c (XLabel p), c (XCase p), c (XCaseV p), c (XDefault p), c (XConstant p), c (XVar p), c (XUnary p), c (XBinary p), c (XAssignment p), c (XConditional p), c (XDeclaration p))
 
 type family XExpression  p
 type family XCompound    p
@@ -168,6 +168,7 @@ type family XReturn      p
 type family XNull        p
 type family XLabel       p
 type family XCase        p
+type family XCaseV       p
 type family XDefault     p
 type family XConstant    p
 type family XVar         p
@@ -180,32 +181,32 @@ type family XDeclaration p
 
 -- PrettyPrinter Instance --
 
-instance PrettyPrinter (Program p) where
-  pretty :: Program p -> Text
+instance PrettyPrinter (XCaseV p) => PrettyPrinter (Program p) where
+  pretty :: (PrettyPrinter (XCaseV p)) => Program p -> Text
   pretty (Program f) = "Program\n" <>  f'
     where f' = identLines $ pretty f
 
-instance PrettyPrinter (FunctionDefinition p) where
-  pretty :: FunctionDefinition p -> Text
+instance PrettyPrinter (XCaseV p) => PrettyPrinter (FunctionDefinition p) where
+  pretty :: (PrettyPrinter (XCaseV p)) => FunctionDefinition p -> Text
   pretty (Function name body) = "Function '" <> name <> "'\n" <> pretty body <> "\n"
 
-instance PrettyPrinter (Block p) where
-  pretty :: Block p -> Text
+instance PrettyPrinter (XCaseV p) => PrettyPrinter (Block p) where
+  pretty :: (PrettyPrinter (XCaseV p)) => Block p -> Text
   pretty (Block blockItens) = T.concat $ map (identLines . pretty) blockItens
 
-instance PrettyPrinter (BlockItem p) where
-  pretty :: BlockItem p -> Text
+instance PrettyPrinter (XCaseV p) => PrettyPrinter (BlockItem p) where
+  pretty :: (PrettyPrinter (XCaseV p)) => BlockItem p -> Text
   pretty (BlockStatement stmt)  = pretty stmt
   pretty (BlockDeclaration dec) = pretty dec
   -- pretty (BlockLabel label) = pretty label
 
-instance PrettyPrinter (Statement p) where
-  pretty :: Statement p -> Text
+instance PrettyPrinter (XCaseV p) => PrettyPrinter (Statement p) where
+  pretty :: (PrettyPrinter (XCaseV p)) => Statement p -> Text
   pretty (LabeledStatement label stmt) = pretty label <> "\n" <> pretty stmt
   pretty (UnlabeledStatement stmt)     = pretty stmt
 
-instance PrettyPrinter (UnlabeledStatement p) where
-  pretty :: UnlabeledStatement p -> Text
+instance PrettyPrinter (XCaseV p) => PrettyPrinter (UnlabeledStatement p) where
+  pretty :: (PrettyPrinter (XCaseV p)) => UnlabeledStatement p -> Text
   pretty (Return _ expr) = ret <> expr' <> ";\n"
     where ret = "return "
           expr' = pretty expr
@@ -222,8 +223,8 @@ instance PrettyPrinter (UnlabeledStatement p) where
   pretty (Switch _ expr body) = "switch (" <> pretty expr <> ")\n" <> pretty body
   pretty (Null _) = ";\n"
 
-instance PrettyPrinter (Label p) where
-  pretty :: Label p -> Text
+instance PrettyPrinter (XCaseV p) => PrettyPrinter (Label p) where
+  pretty :: (PrettyPrinter (XCaseV p)) => Label p -> Text
   pretty (Label _ label) = pretty label <> ":"
   pretty (Default _)     = "default:"
   pretty (Case _ expr)   = "case " <> pretty expr <> ":"

@@ -18,7 +18,7 @@ import           Data.Functor                           (($>))
 import           Numeric.Natural                        (Natural)
 import           Parser.AST                             (Identifier)
 import qualified Parser.AST                             as P
-import           SemanticAnalyzer.SemanticAnalyzerMonad (LabelResolvingPhase)
+import           SemanticAnalyzer.SemanticAnalyzerMonad (SwitchResolvingPhase)
 
 newtype Program = Program FunctionDefinition
   deriving (Show)
@@ -101,10 +101,10 @@ newLabel caption = gets envLastLabel >>= \lastLabel ->
                 Just caption' -> caption' <> "." <> currLabelText
   in modify (\s -> s { envLastLabel = currLabel }) $> label
 
-translateProgram :: P.Program LabelResolvingPhase -> Program
+translateProgram :: P.Program SwitchResolvingPhase -> Program
 translateProgram (P.Program func) = Program $ translateFunction func
 
-translateFunction :: P.FunctionDefinition LabelResolvingPhase -> FunctionDefinition
+translateFunction :: P.FunctionDefinition SwitchResolvingPhase -> FunctionDefinition
 translateFunction (P.Function name body) =
      Function { funcIdentifier = name
               , funcBody = body' ++ [ Return (Const 0) ]
@@ -115,22 +115,22 @@ translateFunction (P.Function name body) =
 class TackyGenerator a b | a -> b where
   translate :: a -> TackyGenerationMonad b
 
-instance TackyGenerator (P.Block LabelResolvingPhase) () where
-  translate :: P.Block LabelResolvingPhase -> TackyGenerationMonad ()
+instance TackyGenerator (P.Block SwitchResolvingPhase) () where
+  translate :: P.Block SwitchResolvingPhase -> TackyGenerationMonad ()
   translate (P.Block blockItens) = mapM_ translate blockItens
 
-instance TackyGenerator (P.BlockItem LabelResolvingPhase) () where
-  translate :: P.BlockItem LabelResolvingPhase -> TackyGenerationMonad ()
+instance TackyGenerator (P.BlockItem SwitchResolvingPhase) () where
+  translate :: P.BlockItem SwitchResolvingPhase -> TackyGenerationMonad ()
   translate (P.BlockStatement stmt)    = translate stmt
   translate (P.BlockDeclaration  decl) = translate decl
 
-instance TackyGenerator (P.Statement LabelResolvingPhase) () where
-  translate :: P.Statement LabelResolvingPhase -> TackyGenerationMonad ()
+instance TackyGenerator (P.Statement SwitchResolvingPhase) () where
+  translate :: P.Statement SwitchResolvingPhase -> TackyGenerationMonad ()
   translate (P.LabeledStatement label stmt) = translate label >> translate stmt
   translate (P.UnlabeledStatement stmt)     = translate stmt
 
-instance TackyGenerator (P.UnlabeledStatement LabelResolvingPhase) () where
-  translate :: P.UnlabeledStatement LabelResolvingPhase -> TackyGenerationMonad ()
+instance TackyGenerator (P.UnlabeledStatement SwitchResolvingPhase) () where
+  translate :: P.UnlabeledStatement SwitchResolvingPhase -> TackyGenerationMonad ()
   translate (P.Null _)      = pure ()
   translate (P.Return _ expr) = translate expr >>= \v -> tell [ Return v ]
   translate (P.Expression _ expr) = void $ translate expr
@@ -195,20 +195,20 @@ instance TackyGenerator (P.UnlabeledStatement LabelResolvingPhase) () where
   translate (P.Break label)    = tell [ Jump $ label <> "_break" ]
   translate (P.Continue label) = tell [ Jump $ label <> "_continue" ]
 
-instance TackyGenerator (P.ForInit LabelResolvingPhase) () where
-  translate :: P.ForInit LabelResolvingPhase -> TackyGenerationMonad ()
+instance TackyGenerator (P.ForInit SwitchResolvingPhase) () where
+  translate :: P.ForInit SwitchResolvingPhase -> TackyGenerationMonad ()
   translate (P.InitExp expr)  = case expr of
     Just expr' -> void $ translate expr'
     Nothing    -> pure ()
   translate (P.InitDecl decl) = translate decl
 
-instance TackyGenerator (P.Label LabelResolvingPhase) () where
+instance TackyGenerator (P.Label SwitchResolvingPhase) () where
   translate (P.Label _ label) = tell [ Label label ]
   translate (P.Case _ _)      = tell [ ]
   translate (P.Default _)     = tell [ ]
 
-instance TackyGenerator (P.Declaration LabelResolvingPhase) () where
-  translate :: P.Declaration LabelResolvingPhase -> TackyGenerationMonad ()
+instance TackyGenerator (P.Declaration SwitchResolvingPhase) () where
+  translate :: P.Declaration SwitchResolvingPhase -> TackyGenerationMonad ()
   translate (P.Declaration _ _ Nothing) = pure ()
   translate (P.Declaration _ lhs (Just rhs)) =
     do rhsVal <- translate rhs
@@ -217,8 +217,8 @@ instance TackyGenerator (P.Declaration LabelResolvingPhase) () where
                    }
             ]
 
-instance TackyGenerator (P.Exp LabelResolvingPhase) Val where
-  translate :: P.Exp LabelResolvingPhase -> TackyGenerationMonad Val
+instance TackyGenerator (P.Exp SwitchResolvingPhase) Val where
+  translate :: P.Exp SwitchResolvingPhase -> TackyGenerationMonad Val
   translate (P.Constant _ (P.CInt val)) = pure $ Const val
   translate (P.Var _ var) = pure $ Var var
   translate (P.Conditional _ cond conse altern) =
@@ -287,20 +287,20 @@ instance TackyGenerator (P.Exp LabelResolvingPhase) Val where
        tell [ Copy { copySrc = rhs', copyDst = lhs' } ]
        pure lhs'
 
-translateUnaryExp :: UnaryOperator -> P.Exp LabelResolvingPhase -> TackyGenerationMonad Val
+translateUnaryExp :: UnaryOperator -> P.Exp SwitchResolvingPhase -> TackyGenerationMonad Val
 translateUnaryExp op expr =
   do src <- translate expr
      dst <- newTmpVar
      tell [ Unary { unaryOperator = op, unarySrc = src, unaryDst = dst } ]
      pure dst
 
-translatePreAssignmentExp :: BinaryOperator -> P.Exp LabelResolvingPhase -> TackyGenerationMonad Val
+translatePreAssignmentExp :: BinaryOperator -> P.Exp SwitchResolvingPhase -> TackyGenerationMonad Val
 translatePreAssignmentExp op var =
   do var' <- translate var
      tell [ Binary { binaryOperator = op, binarySrcs = (var', Const 1), binaryDst = var' } ]
      pure var'
 
-translatePostAssignmentExp :: BinaryOperator -> P.Exp LabelResolvingPhase -> TackyGenerationMonad Val
+translatePostAssignmentExp :: BinaryOperator -> P.Exp SwitchResolvingPhase -> TackyGenerationMonad Val
 translatePostAssignmentExp op var =
   do var' <- translate var
      tmp <- newTmpVar
@@ -314,7 +314,7 @@ translatePostAssignmentExp op var =
           ]
      pure tmp
 
-translateAndExp :: P.Exp LabelResolvingPhase -> P.Exp LabelResolvingPhase -> TackyGenerationMonad Val
+translateAndExp :: P.Exp SwitchResolvingPhase -> P.Exp SwitchResolvingPhase -> TackyGenerationMonad Val
 translateAndExp expr1 expr2 =
   do val1 <- translate expr1
      falseLabel <- newLabel (Just "and_false")
@@ -331,7 +331,7 @@ translateAndExp expr1 expr2 =
           ]
      pure result
 
-translateOrExp :: P.Exp LabelResolvingPhase -> P.Exp LabelResolvingPhase -> TackyGenerationMonad Val
+translateOrExp :: P.Exp SwitchResolvingPhase -> P.Exp SwitchResolvingPhase -> TackyGenerationMonad Val
 translateOrExp expr1 expr2 =
   do val1 <- translate expr1
      trueLabel <- newLabel (Just "or_true")
@@ -348,7 +348,7 @@ translateOrExp expr1 expr2 =
           ]
      pure result
 
-translateBinaryExp :: BinaryOperator -> P.Exp LabelResolvingPhase -> P.Exp LabelResolvingPhase -> TackyGenerationMonad Val
+translateBinaryExp :: BinaryOperator -> P.Exp SwitchResolvingPhase -> P.Exp SwitchResolvingPhase -> TackyGenerationMonad Val
 translateBinaryExp op expr1 expr2 =
   do src1 <- translate expr1
      src2 <- translate expr2
@@ -356,7 +356,7 @@ translateBinaryExp op expr1 expr2 =
      tell [ Binary { binaryOperator = op, binarySrcs = (src1, src2), binaryDst = dst } ]
      pure dst
 
-translateAssignmentExp :: BinaryOperator -> P.Exp LabelResolvingPhase -> P.Exp LabelResolvingPhase -> TackyGenerationMonad Val
+translateAssignmentExp :: BinaryOperator -> P.Exp SwitchResolvingPhase -> P.Exp SwitchResolvingPhase -> TackyGenerationMonad Val
 translateAssignmentExp op lhs rhs =
   do lhs' <- translate lhs
      rhs' <- translate rhs

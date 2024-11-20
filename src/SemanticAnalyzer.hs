@@ -6,11 +6,11 @@ import           Parser.AST                             (Program)
 import           Parser.ParserMonad                     (ParserPhase)
 import           SemanticAnalyzer.Error                 (SemanticError)
 import           SemanticAnalyzer.SemanticAnalyzerMonad (LabelResolver (resolveLabelDeclaration, resolveLabelReference),
-                                                         LabelResolvingPhase,
+                                                         SwitchResolver (resolveSwitch),
+                                                         SwitchResolvingPhase,
                                                          VariableResolver (resolveVariable),
-                                                         VariableResolvingPhase,
                                                          emptyEnvironment)
 
-semanticAnalyze :: Program ParserPhase -> Either (SemanticError VariableResolvingPhase) (Program LabelResolvingPhase)
-semanticAnalyze prog = runExcept $ evalStateT (resolveVariable prog >>= resolveLabelDeclaration >>= resolveLabelReference) emptyEnvironment
+semanticAnalyze :: Program ParserPhase -> Either SemanticError (Program SwitchResolvingPhase)
+semanticAnalyze prog = runExcept $ evalStateT (resolveVariable prog >>= resolveLabelDeclaration >>= resolveLabelReference >>= resolveSwitch) emptyEnvironment
 

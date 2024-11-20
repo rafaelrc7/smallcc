@@ -26,12 +26,12 @@ import           Parser.AST           (AssignmentOperator (..),
                                        UnaryAssignmentOperator (PostDecrement, PostIncrement, PreDecrement, PreIncrement),
                                        UnaryOperator (Complement, Negate, Not, UnaryAssignmentOperator),
                                        UnlabeledStatement (..), XAssignment,
-                                       XBinary, XBreak, XCase, XCompound,
-                                       XConditional, XConstant, XContinue,
-                                       XDeclaration, XDefault, XDoWhile,
-                                       XExpression, XFor, XGoto, XIf, XLabel,
-                                       XNull, XReturn, XSwitch, XUnary, XVar,
-                                       XWhile, precedence)
+                                       XBinary, XBreak, XCase, XCaseV,
+                                       XCompound, XConditional, XConstant,
+                                       XContinue, XDeclaration, XDefault,
+                                       XDoWhile, XExpression, XFor, XGoto, XIf,
+                                       XLabel, XNull, XReturn, XSwitch, XUnary,
+                                       XVar, XWhile, precedence)
 import           Parser.Error         (ParserError, expectedEOF, unexpectedEOF,
                                        unexpectedToken)
 import           Pretty               (PrettyPrinter (pretty))
@@ -55,6 +55,7 @@ type instance XReturn      ParserPhase = ()
 type instance XNull        ParserPhase = ()
 type instance XLabel       ParserPhase = ()
 type instance XCase        ParserPhase = ()
+type instance XCaseV       ParserPhase = Exp ParserPhase
 type instance XDefault     ParserPhase = ()
 type instance XConstant    ParserPhase = ()
 type instance XVar         ParserPhase = ()

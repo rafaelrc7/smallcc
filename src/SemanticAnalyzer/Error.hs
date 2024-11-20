@@ -1,18 +1,20 @@
 {-# LANGUAGE FlexibleContexts     #-}
-{-# LANGUAGE StandaloneDeriving   #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 module SemanticAnalyzer.Error where
 
-import           Parser.AST (Exp, Forall, Identifier)
+import           Parser.AST (Identifier)
 
-data SemanticError p = DuplicateVariableDeclaration Identifier
-                     | UndefinedVariableUse Identifier
-                     | InvalidLHS (Exp p)
-                     | DuplicateLabelDeclaration Identifier
-                     | UndefinedLabelUse Identifier
-                     | StatementOutsideLoop
-                     | StatementOutsideSwitch
-                     | StatementOutsideSwitchOrLoop
-deriving instance (Forall Show p) => Show (SemanticError p)
+data SemanticError = DuplicateVariableDeclaration Identifier
+                   | UndefinedVariableUse Identifier
+                   | InvalidLHS
+                   | NotConstantExpression
+                   | DuplicateLabelDeclaration Identifier
+                   | UndefinedLabelUse Identifier
+                   | StatementOutsideLoop
+                   | StatementOutsideSwitch
+                   | StatementOutsideSwitchOrLoop
+                   | DuplicateCaseValue
+                   | DuplicateDefaultValue
+  deriving (Show)
 
