@@ -78,6 +78,7 @@ scanToken = peekSymbol >>= \case
   Just '~' -> consumeSymbol  >> ret Complement
   Just '?' -> consumeSymbol  >> ret QuestionMark
   Just ':' -> consumeSymbol  >> ret Colon
+  Just ',' -> consumeSymbol  >> ret Comma
   Just s | isSpace  s -> consumeSymbol >> nextToken
            | isDigit  s -> consumeSymbol >> scanConstant
            | isAlpha_ s -> consumeSymbol >> scanIdentifier

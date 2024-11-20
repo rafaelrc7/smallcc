@@ -66,6 +66,7 @@ data TokenType = Keyword Keyword
                | BitShiftRightAssign
                | QuestionMark
                | Colon
+               | Comma
   deriving (Show, Eq)
 
 data Keyword = Int
@@ -150,6 +151,7 @@ instance PrettyPrinter TokenType where
   pretty BitShiftRightAssign = ">>="
   pretty QuestionMark        = "?"
   pretty Colon               = ":"
+  pretty Comma               = ","
 
 instance PrettyPrinter Keyword where
   pretty :: Keyword -> Text
