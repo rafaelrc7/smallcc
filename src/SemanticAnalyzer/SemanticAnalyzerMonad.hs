@@ -64,7 +64,7 @@ type instance XDeclaration VariableResolvingPhase = ()
 type instance XExpression  LabelResolvingPhase = ()
 type instance XCompound    LabelResolvingPhase = ()
 type instance XIf          LabelResolvingPhase = ()
-type instance XSwitch      LabelResolvingPhase = ()
+type instance XSwitch      LabelResolvingPhase = Identifier
 type instance XWhile       LabelResolvingPhase = Identifier
 type instance XDoWhile     LabelResolvingPhase = Identifier
 type instance XFor         LabelResolvingPhase = Identifier
@@ -92,7 +92,7 @@ data SwitchLabel = SCase Constant
 type instance XExpression  SwitchResolvingPhase = ()
 type instance XCompound    SwitchResolvingPhase = ()
 type instance XIf          SwitchResolvingPhase = ()
-type instance XSwitch      SwitchResolvingPhase = Map SwitchLabel Identifier
+type instance XSwitch      SwitchResolvingPhase = (Identifier, Map SwitchLabel Identifier)
 type instance XWhile       SwitchResolvingPhase = Identifier
 type instance XDoWhile     SwitchResolvingPhase = Identifier
 type instance XFor         SwitchResolvingPhase = Identifier
@@ -449,7 +449,7 @@ instance LabelResolver UnlabeledStatement where
   resolveLabelReference (Null       ())                    = pure $ Null     ()
   resolveLabelReference (Switch     () expr body)          =
     do switchLabel <- newLabel "switch"
-       withEnclosingSwitch switchLabel $ Switch () <$> resolveLabelReference expr <*> resolveLabelReference body
+       withEnclosingSwitch switchLabel $ Switch switchLabel <$> resolveLabelReference expr <*> resolveLabelReference body
   resolveLabelReference (While      () cond body)          =
     do loopLabel <- newLabel "while"
        withEnclosingLoop loopLabel $ While loopLabel <$> resolveLabelReference cond <*> resolveLabelReference body
@@ -537,13 +537,13 @@ instance SwitchResolver UnlabeledStatement where
   resolveSwitch (Continue   lb)                    = pure $ Continue lb
   resolveSwitch (Break      lb)                    = pure $ Break    lb
   resolveSwitch (Null       ())                    = pure $ Null     ()
-  resolveSwitch (Switch     () expr body)          =
+  resolveSwitch (Switch     label expr body)       =
     withSwitchLabels $
       do expr' <- resolveSwitch expr
          body' <- resolveSwitch body
          switchLabels <- gets envSwitchLabels
          case switchLabels of
-           Just switchLabels' -> return $ Switch switchLabels' expr' body'
+           Just switchLabels' -> return $ Switch (label, switchLabels') expr' body'
            Nothing            -> throwError StatementOutsideSwitch
 
 instance SwitchResolver ForInit where

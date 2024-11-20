@@ -5,20 +5,23 @@
 
 module Tacky.AST where
 
+import qualified Data.Map                               as M
 import           Data.Maybe                             (fromMaybe)
 import           Data.Text                              (Text)
 import qualified Data.Text                              as T
 
-import           Control.Monad                          (void)
+import           Control.Monad                          (forM_, void)
 import           Control.Monad.State                    (StateT, evalStateT,
                                                          gets, modify)
 import           Control.Monad.Writer                   (MonadWriter (tell),
                                                          Writer, runWriter)
 import           Data.Functor                           (($>))
 import           Numeric.Natural                        (Natural)
-import           Parser.AST                             (Identifier)
+import           Parser.AST                             (Constant (..),
+                                                         Identifier)
 import qualified Parser.AST                             as P
-import           SemanticAnalyzer.SemanticAnalyzerMonad (SwitchResolvingPhase)
+import           SemanticAnalyzer.SemanticAnalyzerMonad (SwitchLabel (..),
+                                                         SwitchResolvingPhase)
 
 newtype Program = Program FunctionDefinition
   deriving (Show)
@@ -136,7 +139,23 @@ instance TackyGenerator (P.UnlabeledStatement SwitchResolvingPhase) () where
   translate (P.Expression _ expr) = void $ translate expr
   translate (P.Goto _ label) = tell [ Jump label ]
   translate (P.Compound _ block) = translate block
-  translate (P.Switch _ _ _) = undefined
+  translate (P.Switch (label, labelsMap) expr body) =
+      do let labels = M.toList labelsMap
+         let breakLabel = label <> "_break"
+         let defaultLabel = fromMaybe breakLabel (M.lookup SDefault labelsMap)
+         exprVal <- translate expr
+         forM_ labels $ translateLabel exprVal
+         tell [ Jump defaultLabel ]
+         translate body
+         tell [ Label breakLabel ]
+    where translateLabel :: Val -> (SwitchLabel, Identifier) -> TackyGenerationMonad ()
+          translateLabel _ (SDefault, _) = pure ()
+          translateLabel exprVal (SCase caseVal, caseLabel) =
+            do caseVal' <- translate caseVal
+               test     <- newTmpVar
+               tell [ Binary { binaryOperator = EqualsTo, binarySrcs = (exprVal, caseVal'), binaryDst = test }
+                    , JumpIfNotZero test caseLabel
+                    ]
   translate (P.If _ cond conse Nothing) =
     do condVal <- translate cond
        endLabel <- newLabel (Just "end")
@@ -203,9 +222,10 @@ instance TackyGenerator (P.ForInit SwitchResolvingPhase) () where
   translate (P.InitDecl decl) = translate decl
 
 instance TackyGenerator (P.Label SwitchResolvingPhase) () where
+  translate :: P.Label SwitchResolvingPhase -> TackyGenerationMonad ()
   translate (P.Label _ label) = tell [ Label label ]
-  translate (P.Case _ _)      = tell [ ]
-  translate (P.Default _)     = tell [ ]
+  translate (P.Case label _)  = tell [ Label label ]
+  translate (P.Default label) = tell [ Label label ]
 
 instance TackyGenerator (P.Declaration SwitchResolvingPhase) () where
   translate :: P.Declaration SwitchResolvingPhase -> TackyGenerationMonad ()
@@ -219,7 +239,7 @@ instance TackyGenerator (P.Declaration SwitchResolvingPhase) () where
 
 instance TackyGenerator (P.Exp SwitchResolvingPhase) Val where
   translate :: P.Exp SwitchResolvingPhase -> TackyGenerationMonad Val
-  translate (P.Constant _ (P.CInt val)) = pure $ Const val
+  translate (P.Constant _ c) = translate c
   translate (P.Var _ var) = pure $ Var var
   translate (P.Conditional _ cond conse altern) =
       do condVal <- translate cond
@@ -286,6 +306,10 @@ instance TackyGenerator (P.Exp SwitchResolvingPhase) Val where
        rhs' <- translate rhs
        tell [ Copy { copySrc = rhs', copyDst = lhs' } ]
        pure lhs'
+
+instance TackyGenerator P.Constant Val where
+  translate :: Constant -> TackyGenerationMonad Val
+  translate (CInt val) = pure $ Const val
 
 translateUnaryExp :: UnaryOperator -> P.Exp SwitchResolvingPhase -> TackyGenerationMonad Val
 translateUnaryExp op expr =
