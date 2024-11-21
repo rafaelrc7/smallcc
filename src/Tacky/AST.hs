@@ -23,7 +23,7 @@ import qualified Parser.AST                             as P
 import           SemanticAnalyzer.SemanticAnalyzerMonad (SwitchLabel (..),
                                                          SwitchResolvingPhase)
 
-newtype Program = Program FunctionDefinition
+newtype Program = Program [FunctionDefinition]
   deriving (Show)
 
 data FunctionDefinition = Function { funcIdentifier :: Identifier
@@ -105,10 +105,10 @@ newLabel caption = gets envLastLabel >>= \lastLabel ->
   in modify (\s -> s { envLastLabel = currLabel }) $> label
 
 translateProgram :: P.Program SwitchResolvingPhase -> Program
-translateProgram (P.Program func) = Program $ translateFunction func
+translateProgram (P.Program func) = Program $ map translateFunction func
 
-translateFunction :: P.FunctionDefinition SwitchResolvingPhase -> FunctionDefinition
-translateFunction (P.Function name body) =
+translateFunction :: P.FunctionDeclaration SwitchResolvingPhase -> FunctionDefinition
+translateFunction (P.FunctionDeclaration _ name _ (Just body)) =
      Function { funcIdentifier = name
               , funcBody = body' ++ [ Return (Const 0) ]
               }
@@ -229,8 +229,12 @@ instance TackyGenerator (P.Label SwitchResolvingPhase) () where
 
 instance TackyGenerator (P.Declaration SwitchResolvingPhase) () where
   translate :: P.Declaration SwitchResolvingPhase -> TackyGenerationMonad ()
-  translate (P.Declaration _ _ Nothing) = pure ()
-  translate (P.Declaration _ lhs (Just rhs)) =
+  translate = undefined
+
+instance TackyGenerator (P.VarDeclaration SwitchResolvingPhase) () where
+  translate :: P.VarDeclaration SwitchResolvingPhase -> TackyGenerationMonad ()
+  translate (P.VarDeclaration _ _ Nothing) = pure ()
+  translate (P.VarDeclaration _ lhs (Just rhs)) =
     do rhsVal <- translate rhs
        tell [ Copy { copySrc = rhsVal
                    , copyDst = Var lhs

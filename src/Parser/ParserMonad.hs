@@ -20,18 +20,21 @@ import           Parser.AST           (AssignmentOperator (..),
                                        BlockItem (..), Constant (..),
                                        Declaration (..), Exp (..),
                                        ForInit (InitDecl, InitExp),
-                                       FunctionDefinition (..), Identifier,
-                                       Label (..), Precedence (Precedence),
-                                       Program (..), Statement (..),
+                                       FunctionDeclaration (FunctionDeclaration),
+                                       Identifier, Label (..),
+                                       Precedence (Precedence), Program (..),
+                                       Statement (..),
                                        UnaryAssignmentOperator (PostDecrement, PostIncrement, PreDecrement, PreIncrement),
                                        UnaryOperator (Complement, Negate, Not, UnaryAssignmentOperator),
-                                       UnlabeledStatement (..), XAssignment,
-                                       XBinary, XBreak, XCase, XCaseV,
-                                       XCompound, XConditional, XConstant,
-                                       XContinue, XDeclaration, XDefault,
-                                       XDoWhile, XExpression, XFor, XGoto, XIf,
-                                       XLabel, XNull, XReturn, XSwitch, XUnary,
-                                       XVar, XWhile, precedence)
+                                       UnlabeledStatement (..),
+                                       VarDeclaration (VarDeclaration),
+                                       XAssignment, XBinary, XBreak, XCase,
+                                       XCaseV, XCompound, XConditional,
+                                       XConstant, XContinue, XDefault, XDoWhile,
+                                       XExpression, XFor, XFunDecl,
+                                       XFunctionCall, XGoto, XIf, XLabel, XNull,
+                                       XReturn, XSwitch, XUnary, XVar, XVarDecl,
+                                       XWhile, precedence)
 import           Parser.Error         (ParserError, expectedEOF, unexpectedEOF,
                                        unexpectedToken)
 import           Pretty               (PrettyPrinter (pretty))
@@ -41,29 +44,31 @@ import           Pretty               (PrettyPrinter (pretty))
 
 data ParserPhase
 
-type instance XExpression  ParserPhase = ()
-type instance XCompound    ParserPhase = ()
-type instance XIf          ParserPhase = ()
-type instance XSwitch      ParserPhase = ()
-type instance XWhile       ParserPhase = ()
-type instance XDoWhile     ParserPhase = ()
-type instance XFor         ParserPhase = ()
-type instance XGoto        ParserPhase = ()
-type instance XContinue    ParserPhase = ()
-type instance XBreak       ParserPhase = ()
-type instance XReturn      ParserPhase = ()
-type instance XNull        ParserPhase = ()
-type instance XLabel       ParserPhase = ()
-type instance XCase        ParserPhase = ()
-type instance XCaseV       ParserPhase = Exp ParserPhase
-type instance XDefault     ParserPhase = ()
-type instance XConstant    ParserPhase = ()
-type instance XVar         ParserPhase = ()
-type instance XUnary       ParserPhase = ()
-type instance XBinary      ParserPhase = ()
-type instance XAssignment  ParserPhase = ()
-type instance XConditional ParserPhase = ()
-type instance XDeclaration ParserPhase = ()
+type instance XExpression   ParserPhase = ()
+type instance XCompound     ParserPhase = ()
+type instance XIf           ParserPhase = ()
+type instance XSwitch       ParserPhase = ()
+type instance XWhile        ParserPhase = ()
+type instance XDoWhile      ParserPhase = ()
+type instance XFor          ParserPhase = ()
+type instance XGoto         ParserPhase = ()
+type instance XContinue     ParserPhase = ()
+type instance XBreak        ParserPhase = ()
+type instance XReturn       ParserPhase = ()
+type instance XNull         ParserPhase = ()
+type instance XLabel        ParserPhase = ()
+type instance XCase         ParserPhase = ()
+type instance XCaseV        ParserPhase = Exp ParserPhase
+type instance XDefault      ParserPhase = ()
+type instance XConstant     ParserPhase = ()
+type instance XVar          ParserPhase = ()
+type instance XUnary        ParserPhase = ()
+type instance XBinary       ParserPhase = ()
+type instance XAssignment   ParserPhase = ()
+type instance XConditional  ParserPhase = ()
+type instance XFunDecl      ParserPhase = ()
+type instance XVarDecl      ParserPhase = ()
+type instance XFunctionCall ParserPhase = ()
 
 
 -- ParserMonad --
@@ -93,18 +98,35 @@ expect s = get >>= \case
 
 -- Parsing Grammar --
 
--- <program> ::= <function>
+-- <program> ::= {<function>}
 instance Parser (Program ParserPhase) where
   parse :: ParserMonad (Program ParserPhase)
-  parse = Program <$> parse <* expectEOF
+  parse = Program <$> many parse <* expectEOF
 
--- <function> ::= "int" <identifier> "(" "void" ")" <block>
-instance Parser (FunctionDefinition ParserPhase) where
-  parse :: ParserMonad (FunctionDefinition ParserPhase)
+-- <declaration> ::= <function-declaration> | <var-declaration>
+instance Parser (Declaration ParserPhase) where
+  parse :: ParserMonad (Declaration ParserPhase)
+  parse = VarDecl <$> parse
+      <|> FunDecl <$> parse
+
+-- <function-declaration> ::= "int" <identifier> "(" <param-list> ")" (<block> | ";")
+-- <param-lsit> :: = "void" | "int" <identifier> {"," "int" <identifier>}
+instance Parser (FunctionDeclaration ParserPhase) where
+  parse :: ParserMonad (FunctionDeclaration ParserPhase)
   parse = do expect (TK.Keyword TK.Int)
              name <- parse
-             mapM_ expect [ TK.OpenParens, TK.Keyword TK.Void, TK.CloseParens ]
-             Function name <$> parse
+             expect TK.OpenParens
+             params <- (:) <$> (expect (TK.Keyword TK.Int) *> parse) <*> many (expect TK.Comma *> expect (TK.Keyword TK.Int) *> parse)
+                   <|> expect (TK.Keyword TK.Void) $> []
+             expect TK.CloseParens
+             body <- expect TK.Semicolon $> Nothing
+                 <|> Just <$> parse
+             return $ FunctionDeclaration () name params body
+
+-- <var-declaration> ::= "int" <identifier> ["=" <exp>] ";"
+instance Parser (VarDeclaration ParserPhase) where
+  parse :: ParserMonad (VarDeclaration ParserPhase)
+  parse = expect (TK.Keyword TK.Int) *> (VarDeclaration () <$> parse <*> optional (expect TK.Equals *> parse)) <* expect TK.Semicolon
 
 -- <block> ::= "{" {<block-item>} "}"
 instance Parser (Block ParserPhase) where
@@ -149,7 +171,7 @@ instance Parser (UnlabeledStatement ParserPhase) where
       <|> Compound () <$> parse
       <|> Expression () <$> parse <* expect TK.Semicolon
 
--- <for-init> ::= <declaration> | <exp> ";"
+-- <for-init> ::= <var-declaration> | [<exp>] ";"
 instance Parser (ForInit ParserPhase) where
   parse :: ParserMonad (ForInit ParserPhase)
   parse = InitDecl <$> parse
@@ -163,11 +185,6 @@ instance Parser (Label ParserPhase) where
   parse = expect (TK.Keyword TK.Case) *> (Case () <$> parse) <* expect TK.Colon
       <|> expect (TK.Keyword TK.Default) $> Default () <* expect TK.Colon
       <|> (Label () <$> parse) <* expect TK.Colon
-
--- <declaration> ::= "int" <identifier> ["=" <exp>] ";"
-instance Parser (Declaration ParserPhase) where
-  parse :: ParserMonad (Declaration ParserPhase)
-  parse = expect (TK.Keyword TK.Int) *> (Declaration () <$> parse <*> optional (expect TK.Equals *> parse)) <* expect TK.Semicolon
 
 -- <exp> ::= <assignment-exp>
 instance Parser (Exp ParserPhase) where
@@ -224,11 +241,16 @@ parsePostfixExp = parsePrimaryExp >>= consumePostfix
                           <|> expect TK.Increment *> consumePostfix (Unary () (UnaryAssignmentOperator PostIncrement) expr)
                           <|> pure expr
 
--- <primary-exp> ::= <identifier> | <int-constant> | "(" <exp> ")"
+-- <primary-exp> ::= <identifier> | <int-constant> | "(" <exp> ")" | <identifier> "(" [<argument-list> ] ")"
+-- <argument-list> ::= <exp> {"," <exp>}
 parsePrimaryExp :: ParserMonad (Exp ParserPhase)
-parsePrimaryExp = Var      () <$> parse
-              <|> Constant () <$> parse
+parsePrimaryExp = FunctionCall () <$> parse <*> (expect TK.OpenParens *> argumentList <* expect TK.CloseParens)
+              <|> Var          () <$> parse
+              <|> Constant     () <$> parse
               <|> expect TK.OpenParens *> parse <* expect TK.CloseParens
+  where argumentList :: ParserMonad [Exp ParserPhase]
+        argumentList = (:) <$> parse <*> many (expect TK.Comma *> parse)
+                   <|> pure []
 
 -- <binop> ::= "-" | "+" | "*" | "/" | "%" | "&&" | "||"
 --           | "==" | "!=" | "<" | "<=" | ">" | ">=" | "="

@@ -165,7 +165,7 @@ fetchVarMap vm@(varMap, lastOffset) identifier = case varMap !? identifier of
         varMap' = Map.insert identifier newOffset varMap
 
 translateProgram :: T.Program -> Program
-translateProgram (T.Program func) = Program $ translateFunctionDefinition func
+translateProgram (T.Program [func]) = Program $ translateFunctionDefinition func
 
 translateFunctionDefinition :: T.FunctionDefinition -> FunctionDefinition
 translateFunctionDefinition func = Function { funcName = T.funcIdentifier func

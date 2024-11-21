@@ -20,11 +20,18 @@ type Identifier = Text
 
 -- AST Definition --
 
-newtype Program p = Program (FunctionDefinition p)
+newtype Program p = Program [FunctionDeclaration p]
 deriving instance (Forall Show p) => Show (Program p)
 
-data FunctionDefinition p = Function Identifier (Block p)
-deriving instance (Forall Show p) => Show (FunctionDefinition p)
+data Declaration p = FunDecl (FunctionDeclaration p)
+                   | VarDecl (VarDeclaration p)
+deriving instance (Forall Show p) => Show (Declaration p)
+
+data FunctionDeclaration p = FunctionDeclaration (XFunDecl p) Identifier [Identifier] (Maybe (Block p))
+deriving instance (Forall Show p) => Show (FunctionDeclaration p)
+
+data VarDeclaration p = VarDeclaration (XVarDecl p) Identifier (Maybe (Exp p))
+deriving instance (Forall Show p) => Show (VarDeclaration p)
 
 data BlockItem p = BlockDeclaration (Declaration p)
                  | BlockStatement   (Statement p)
@@ -58,19 +65,17 @@ data Label p = Label   (XLabel   p) Identifier
              | Default (XDefault p)
 deriving instance (Forall Show p) => Show (Label p)
 
-data ForInit p = InitDecl (Declaration p)
+data ForInit p = InitDecl (VarDeclaration p)
                | InitExp  (Maybe (Exp p))
 deriving instance (Forall Show p) => Show (ForInit p)
 
-data Declaration p = Declaration (XDeclaration p) Identifier (Maybe (Exp p))
-deriving instance (Forall Show p) => Show (Declaration p)
-
-data Exp p = Constant    (XConstant    p) Constant
-           | Var         (XVar         p) Identifier
-           | Unary       (XUnary       p) UnaryOperator (Exp p)
-           | Binary      (XBinary      p) BinaryOperator (Exp p) (Exp p)
-           | Assignment  (XAssignment  p) (Exp p) AssignmentOperator (Exp p)
-           | Conditional (XConditional p) (Exp p) (Exp p) (Exp p)
+data Exp p = Constant     (XConstant     p) Constant
+           | Var          (XVar          p) Identifier
+           | Unary        (XUnary        p) UnaryOperator (Exp p)
+           | Binary       (XBinary       p) BinaryOperator (Exp p) (Exp p)
+           | Assignment   (XAssignment   p) (Exp p) AssignmentOperator (Exp p)
+           | Conditional  (XConditional  p) (Exp p) (Exp p) (Exp p)
+           | FunctionCall (XFunctionCall p) Identifier [Exp p]
 deriving instance (Forall Show p) => Show (Exp p)
 
 newtype Constant = CInt Int
@@ -152,43 +157,45 @@ precedence Remainder      = Precedence LeftAssociative  50
 
 -- AST Decorators --
 
-type Forall (c :: Type -> Constraint) p = (c (XExpression p), c (XCompound p), c (XIf p), c (XSwitch p), c (XWhile p), c (XDoWhile p), c (XFor p), c (XGoto p), c (XContinue p), c (XBreak p), c (XReturn p), c (XNull p), c (XLabel p), c (XCase p), c (XCaseV p), c (XDefault p), c (XConstant p), c (XVar p), c (XUnary p), c (XBinary p), c (XAssignment p), c (XConditional p), c (XDeclaration p))
+type Forall (c :: Type -> Constraint) p = (c (XExpression p), c (XCompound p), c (XIf p), c (XSwitch p), c (XWhile p), c (XDoWhile p), c (XFor p), c (XGoto p), c (XContinue p), c (XBreak p), c (XReturn p), c (XNull p), c (XLabel p), c (XCase p), c (XCaseV p), c (XDefault p), c (XConstant p), c (XVar p), c (XUnary p), c (XBinary p), c (XAssignment p), c (XConditional p), c (XVarDecl p), c (XFunDecl p), c (XFunctionCall p))
 
-type family XExpression  p
-type family XCompound    p
-type family XIf          p
-type family XSwitch      p
-type family XWhile       p
-type family XDoWhile     p
-type family XFor         p
-type family XGoto        p
-type family XContinue    p
-type family XBreak       p
-type family XReturn      p
-type family XNull        p
-type family XLabel       p
-type family XCase        p
-type family XCaseV       p
-type family XDefault     p
-type family XConstant    p
-type family XVar         p
-type family XUnary       p
-type family XBinary      p
-type family XAssignment  p
-type family XConditional p
-type family XDeclaration p
+type family XExpression   p
+type family XCompound     p
+type family XIf           p
+type family XSwitch       p
+type family XWhile        p
+type family XDoWhile      p
+type family XFor          p
+type family XGoto         p
+type family XContinue     p
+type family XBreak        p
+type family XReturn       p
+type family XNull         p
+type family XLabel        p
+type family XCase         p
+type family XCaseV        p
+type family XDefault      p
+type family XConstant     p
+type family XVar          p
+type family XUnary        p
+type family XBinary       p
+type family XAssignment   p
+type family XConditional  p
+type family XVarDecl      p
+type family XFunDecl      p
+type family XFunctionCall p
 
 
 -- PrettyPrinter Instance --
 
 instance PrettyPrinter (XCaseV p) => PrettyPrinter (Program p) where
   pretty :: (PrettyPrinter (XCaseV p)) => Program p -> Text
-  pretty (Program f) = "Program\n" <>  f'
-    where f' = identLines $ pretty f
+  pretty (Program f) = T.intercalate "\n" $ map pretty f
 
-instance PrettyPrinter (XCaseV p) => PrettyPrinter (FunctionDefinition p) where
-  pretty :: (PrettyPrinter (XCaseV p)) => FunctionDefinition p -> Text
-  pretty (Function name body) = "Function '" <> name <> "'\n" <> pretty body <> "\n"
+instance PrettyPrinter (XCaseV p) => PrettyPrinter (FunctionDeclaration p) where
+  pretty :: (PrettyPrinter (XCaseV p)) => FunctionDeclaration p -> Text
+  pretty (FunctionDeclaration _ name params body) = "int " <> name <> "(" <> T.intercalate ", " (map pretty params) <> ")" <>
+    maybe ";\n" (T.append "{\n" . pretty) body <> "}\n"
 
 instance PrettyPrinter (XCaseV p) => PrettyPrinter (Block p) where
   pretty :: (PrettyPrinter (XCaseV p)) => Block p -> Text
@@ -234,10 +241,15 @@ instance PrettyPrinter (ForInit p) where
   pretty (InitDecl decl) = pretty decl
   pretty (InitExp  expr) = maybe "" pretty expr
 
-instance PrettyPrinter (Declaration p) where
+instance PrettyPrinter (XCaseV p) => PrettyPrinter (Declaration p) where
   pretty :: Declaration p -> Text
-  pretty (Declaration _ name Nothing) = "int " <> name <> ";\n";
-  pretty (Declaration _ name (Just i)) = "int " <> name <> " = " <> pretty i <> ";\n";
+  pretty (VarDecl decl) = pretty decl
+  pretty (FunDecl decl) = pretty decl
+
+instance PrettyPrinter (VarDeclaration p) where
+  pretty :: VarDeclaration p -> Text
+  pretty (VarDeclaration _ name Nothing) = "int " <> name <> ";\n";
+  pretty (VarDeclaration _ name (Just i)) = "int " <> name <> " = " <> pretty i <> ";\n";
 
 instance PrettyPrinter (Exp p) where
   pretty :: Exp p -> Text
@@ -249,6 +261,7 @@ instance PrettyPrinter (Exp p) where
   pretty (Binary _ op exprl exprr) = "(" <> T.intercalate " " [pretty exprl, pretty op, pretty exprr] <> ")"
   pretty (Assignment _ exprl op exprr) = "(" <> T.intercalate " " [pretty exprl, pretty op, pretty exprr] <> ")"
   pretty (Conditional _ cond exp1 exp2) = "(" <> pretty cond <> " ? " <> pretty exp1 <> " : " <> pretty exp2 <> ")"
+  pretty (FunctionCall _ name args) = name <> "(" <> T.intercalate ", " (map pretty args) <> ")"
 
 instance PrettyPrinter Constant where
   pretty :: Constant -> Text

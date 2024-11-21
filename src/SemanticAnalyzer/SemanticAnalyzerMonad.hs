@@ -8,17 +8,19 @@ module SemanticAnalyzer.SemanticAnalyzerMonad where
 import           Parser.AST             (BinaryOperator (..), Block (..),
                                          BlockItem (..), Constant (..),
                                          Declaration (..), Exp (..),
-                                         ForInit (..), FunctionDefinition (..),
+                                         ForInit (..),
+                                         FunctionDeclaration (FunctionDeclaration),
                                          Identifier, Label (..), Program (..),
                                          Statement (..), UnaryOperator (..),
-                                         UnlabeledStatement (..), XAssignment,
-                                         XBinary, XBreak, XCase, XCaseV,
-                                         XCompound, XConditional, XConstant,
-                                         XContinue, XDeclaration, XDefault,
-                                         XDoWhile, XExpression, XFor, XGoto,
-                                         XIf, XLabel, XNull, XReturn, XSwitch,
-                                         XUnary, XVar, XWhile)
-import qualified Parser.AST             as P
+                                         UnlabeledStatement (..),
+                                         VarDeclaration (VarDeclaration),
+                                         XAssignment, XBinary, XBreak, XCase,
+                                         XCaseV, XCompound, XConditional,
+                                         XConstant, XContinue, XDefault,
+                                         XDoWhile, XExpression, XFor, XFunDecl,
+                                         XGoto, XIf, XLabel, XNull, XReturn,
+                                         XSwitch, XUnary, XVar, XVarDecl,
+                                         XWhile)
 import           SemanticAnalyzer.Error (SemanticError (..))
 
 import           Control.Applicative    (asum)
@@ -59,7 +61,8 @@ type instance XUnary       VariableResolvingPhase = ()
 type instance XBinary      VariableResolvingPhase = ()
 type instance XAssignment  VariableResolvingPhase = ()
 type instance XConditional VariableResolvingPhase = ()
-type instance XDeclaration VariableResolvingPhase = ()
+type instance XFunDecl     VariableResolvingPhase = ()
+type instance XVarDecl     VariableResolvingPhase = ()
 
 type instance XExpression  LabelResolvingPhase = ()
 type instance XCompound    LabelResolvingPhase = ()
@@ -83,7 +86,8 @@ type instance XUnary       LabelResolvingPhase = ()
 type instance XBinary      LabelResolvingPhase = ()
 type instance XAssignment  LabelResolvingPhase = ()
 type instance XConditional LabelResolvingPhase = ()
-type instance XDeclaration LabelResolvingPhase = ()
+type instance XFunDecl     LabelResolvingPhase = ()
+type instance XVarDecl     LabelResolvingPhase = ()
 
 data SwitchLabel = SCase Constant
                  | SDefault
@@ -111,7 +115,8 @@ type instance XUnary       SwitchResolvingPhase = ()
 type instance XBinary      SwitchResolvingPhase = ()
 type instance XAssignment  SwitchResolvingPhase = ()
 type instance XConditional SwitchResolvingPhase = ()
-type instance XDeclaration SwitchResolvingPhase = ()
+type instance XFunDecl     SwitchResolvingPhase = ()
+type instance XVarDecl     SwitchResolvingPhase = ()
 
 type IdentifierMap = Map Identifier Identifier
 
@@ -261,9 +266,10 @@ collapseConstantExp (Unary       _ Not expr)           = collapseConstantExp exp
 collapseConstantExp (Binary      _ op lhs rhs)         = collapseConstantExp lhs >>= \lhs' -> collapseConstantExp rhs >>= \rhs' -> return $ intOverConst (getBinary op) lhs' rhs'
 collapseConstantExp (Conditional _ cond conseq altern) = collapseConstantExp cond >>= \(CInt cond') -> if intToBool cond' then collapseConstantExp conseq else collapseConstantExp altern
 collapseConstantExp (Constant    _ e@(CInt _))         = return e
-collapseConstantExp (Unary {})                         = throwError NotConstantExpression
-collapseConstantExp (Var       _ _)                    = throwError NotConstantExpression
-collapseConstantExp (Assignment {})                    = throwError NotConstantExpression
+collapseConstantExp (FunctionCall {})                  = throwError NotConstantExpression
+collapseConstantExp (Unary        {})                  = throwError NotConstantExpression
+collapseConstantExp (Var          {})                  = throwError NotConstantExpression
+collapseConstantExp (Assignment   {})                  = throwError NotConstantExpression
 
 intOverConst :: (Int -> Int -> Int) -> Constant -> Constant -> Constant
 intOverConst op (CInt a) (CInt b) = CInt $ a `op` b
@@ -314,11 +320,16 @@ class SwitchResolver a where
 
 instance VariableResolver Program where
   resolveVariable :: Program ParserPhase -> SemanticAnalyzerMonad (Program VariableResolvingPhase)
-  resolveVariable (Program func) = Program <$> resolveVariable func
+  resolveVariable (Program func) = Program <$> mapM resolveVariable func
 
-instance VariableResolver FunctionDefinition where
-  resolveVariable :: FunctionDefinition ParserPhase -> SemanticAnalyzerMonad (FunctionDefinition VariableResolvingPhase)
-  resolveVariable (P.Function name body) = modify (\env -> env { envFunctionName = Just name }) >> Function name <$> resolveVariable body
+instance VariableResolver Declaration where
+  resolveVariable :: Declaration ParserPhase -> SemanticAnalyzerMonad (Declaration VariableResolvingPhase)
+  resolveVariable (FunDecl decl) = FunDecl <$> resolveVariable decl
+  resolveVariable (VarDecl decl) = VarDecl <$> resolveVariable decl
+
+instance VariableResolver FunctionDeclaration where
+  resolveVariable :: FunctionDeclaration ParserPhase -> SemanticAnalyzerMonad (FunctionDeclaration VariableResolvingPhase)
+  resolveVariable (FunctionDeclaration _ name params body) = modify (\env -> env { envFunctionName = Just name }) >> FunctionDeclaration () name params <$> (resolveVariable <$?> body)
 
 instance VariableResolver Block where
   resolveVariable :: Block ParserPhase -> SemanticAnalyzerMonad (Block VariableResolvingPhase)
@@ -329,9 +340,9 @@ instance VariableResolver BlockItem where
   resolveVariable (BlockStatement   stmt) = BlockStatement   <$> resolveVariable stmt
   resolveVariable (BlockDeclaration decl) = BlockDeclaration <$> resolveVariable decl
 
-instance VariableResolver Declaration where
-  resolveVariable :: Declaration ParserPhase -> SemanticAnalyzerMonad (Declaration VariableResolvingPhase)
-  resolveVariable (Declaration () var initialisation) = Declaration () <$> resolveVar var <*> (resolveVariable <$?> initialisation)
+instance VariableResolver VarDeclaration where
+  resolveVariable :: VarDeclaration ParserPhase -> SemanticAnalyzerMonad (VarDeclaration VariableResolvingPhase)
+  resolveVariable (VarDeclaration () var initialisation) = VarDeclaration () <$> resolveVar var <*> (resolveVariable <$?> initialisation)
 
 instance VariableResolver Statement where
   resolveVariable :: Statement ParserPhase -> SemanticAnalyzerMonad (Statement VariableResolvingPhase)
@@ -379,17 +390,26 @@ instance VariableResolver Exp where
 
 instance LabelResolver Program where
   resolveLabelDeclaration :: Program VariableResolvingPhase -> SemanticAnalyzerMonad (Program VariableResolvingPhase)
-  resolveLabelDeclaration (Program func) = Program <$> resolveLabelDeclaration func
+  resolveLabelDeclaration (Program func) = Program <$> mapM resolveLabelDeclaration func
 
   resolveLabelReference :: Program VariableResolvingPhase -> SemanticAnalyzerMonad (Program LabelResolvingPhase)
-  resolveLabelReference (Program func) = Program <$> resolveLabelReference func
+  resolveLabelReference (Program func) = Program <$> mapM resolveLabelReference func
 
-instance LabelResolver FunctionDefinition where
-  resolveLabelDeclaration :: FunctionDefinition VariableResolvingPhase -> SemanticAnalyzerMonad (FunctionDefinition VariableResolvingPhase)
-  resolveLabelDeclaration (Function name body) = modify (\env -> env { envFunctionName = Just name }) >> Function name <$> resolveLabelDeclaration body
+instance LabelResolver Declaration where
+  resolveLabelDeclaration :: Declaration VariableResolvingPhase -> SemanticAnalyzerMonad (Declaration VariableResolvingPhase)
+  resolveLabelDeclaration (FunDecl decl) = FunDecl <$> resolveLabelDeclaration decl
+  resolveLabelDeclaration (VarDecl decl) = VarDecl <$> resolveLabelDeclaration decl
 
-  resolveLabelReference :: FunctionDefinition VariableResolvingPhase -> SemanticAnalyzerMonad (FunctionDefinition LabelResolvingPhase)
-  resolveLabelReference (Function name body) = modify (\env -> env { envFunctionName = Just name }) >> Function name <$> resolveLabelReference body
+  resolveLabelReference :: Declaration VariableResolvingPhase -> SemanticAnalyzerMonad (Declaration LabelResolvingPhase)
+  resolveLabelReference (FunDecl decl) = FunDecl <$> resolveLabelReference decl
+  resolveLabelReference (VarDecl decl) = VarDecl <$> resolveLabelReference decl
+
+instance LabelResolver FunctionDeclaration where
+  resolveLabelDeclaration :: FunctionDeclaration VariableResolvingPhase -> SemanticAnalyzerMonad (FunctionDeclaration VariableResolvingPhase)
+  resolveLabelDeclaration (FunctionDeclaration _ name params body) = modify (\env -> env { envFunctionName = Just name }) >> FunctionDeclaration () name params <$> (resolveLabelDeclaration <$?> body)
+
+  resolveLabelReference :: FunctionDeclaration VariableResolvingPhase -> SemanticAnalyzerMonad (FunctionDeclaration LabelResolvingPhase)
+  resolveLabelReference (FunctionDeclaration _ name params body) = modify (\env -> env { envFunctionName = Just name }) >> FunctionDeclaration () name params <$> resolveLabelReference <$?> body
 
 instance LabelResolver Block where
   resolveLabelDeclaration :: Block VariableResolvingPhase -> SemanticAnalyzerMonad (Block VariableResolvingPhase)
@@ -407,12 +427,12 @@ instance LabelResolver BlockItem where
   resolveLabelReference (BlockStatement   stmt) = BlockStatement   <$> resolveLabelReference stmt
   resolveLabelReference (BlockDeclaration decl) = BlockDeclaration <$> resolveLabelReference decl
 
-instance LabelResolver Declaration where
-  resolveLabelDeclaration :: Declaration VariableResolvingPhase -> SemanticAnalyzerMonad (Declaration VariableResolvingPhase)
-  resolveLabelDeclaration (Declaration () var initialisation) = Declaration () var <$> (resolveLabelDeclaration <$?> initialisation)
+instance LabelResolver VarDeclaration where
+  resolveLabelDeclaration :: VarDeclaration VariableResolvingPhase -> SemanticAnalyzerMonad (VarDeclaration VariableResolvingPhase)
+  resolveLabelDeclaration (VarDeclaration () var initialisation) = VarDeclaration () var <$> (resolveLabelDeclaration <$?> initialisation)
 
-  resolveLabelReference :: Declaration VariableResolvingPhase -> SemanticAnalyzerMonad (Declaration LabelResolvingPhase)
-  resolveLabelReference (Declaration () var initialisation) = Declaration () var <$> (resolveLabelReference <$?> initialisation)
+  resolveLabelReference :: VarDeclaration VariableResolvingPhase -> SemanticAnalyzerMonad (VarDeclaration LabelResolvingPhase)
+  resolveLabelReference (VarDeclaration () var initialisation) = VarDeclaration () var <$> (resolveLabelReference <$?> initialisation)
 
 instance LabelResolver Statement where
   resolveLabelDeclaration :: Statement VariableResolvingPhase -> SemanticAnalyzerMonad (Statement VariableResolvingPhase)
@@ -500,11 +520,16 @@ instance LabelResolver Exp where
 
 instance SwitchResolver Program where
   resolveSwitch :: Program LabelResolvingPhase -> SemanticAnalyzerMonad (Program SwitchResolvingPhase)
-  resolveSwitch (Program func) = Program <$> resolveSwitch func
+  resolveSwitch (Program func) = Program <$> mapM resolveSwitch func
 
-instance SwitchResolver FunctionDefinition where
-  resolveSwitch :: FunctionDefinition LabelResolvingPhase -> SemanticAnalyzerMonad (FunctionDefinition SwitchResolvingPhase)
-  resolveSwitch (Function name body) = modify (\env -> env { envFunctionName = Just name }) >> Function name <$> resolveSwitch body
+instance SwitchResolver Declaration where
+  resolveSwitch :: Declaration LabelResolvingPhase -> SemanticAnalyzerMonad (Declaration SwitchResolvingPhase)
+  resolveSwitch (FunDecl decl) = FunDecl <$> resolveSwitch decl
+  resolveSwitch (VarDecl decl) = VarDecl <$> resolveSwitch decl
+
+instance SwitchResolver FunctionDeclaration where
+  resolveSwitch :: FunctionDeclaration LabelResolvingPhase -> SemanticAnalyzerMonad (FunctionDeclaration SwitchResolvingPhase)
+  resolveSwitch (FunctionDeclaration _ name params body) = modify (\env -> env { envFunctionName = Just name }) >> FunctionDeclaration () name params <$> (resolveSwitch <$?> body)
 
 instance SwitchResolver Block where
   resolveSwitch :: Block LabelResolvingPhase -> SemanticAnalyzerMonad (Block SwitchResolvingPhase)
@@ -515,9 +540,9 @@ instance SwitchResolver BlockItem where
   resolveSwitch (BlockStatement   stmt) = BlockStatement   <$> resolveSwitch stmt
   resolveSwitch (BlockDeclaration decl) = BlockDeclaration <$> resolveSwitch decl
 
-instance SwitchResolver Declaration where
-  resolveSwitch :: Declaration LabelResolvingPhase -> SemanticAnalyzerMonad (Declaration SwitchResolvingPhase)
-  resolveSwitch (Declaration () var initialisation) = Declaration () var <$> (resolveSwitch <$?> initialisation)
+instance SwitchResolver VarDeclaration where
+  resolveSwitch :: VarDeclaration LabelResolvingPhase -> SemanticAnalyzerMonad (VarDeclaration SwitchResolvingPhase)
+  resolveSwitch (VarDeclaration () var initialisation) = VarDeclaration () var <$> (resolveSwitch <$?> initialisation)
 
 instance SwitchResolver Statement where
   resolveSwitch :: Statement LabelResolvingPhase -> SemanticAnalyzerMonad (Statement SwitchResolvingPhase)
