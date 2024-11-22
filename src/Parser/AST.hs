@@ -22,29 +22,43 @@ type Identifier = Text
 
 newtype Program p = Program [FunctionDeclaration p]
 deriving instance (Forall Show p) => Show (Program p)
+deriving instance (Forall Eq p) => Eq (Program p)
+deriving instance (Forall Ord p) => Ord (Program p)
 
 data Declaration p = FunDecl (FunctionDeclaration p)
                    | VarDecl (VarDeclaration p)
 deriving instance (Forall Show p) => Show (Declaration p)
+deriving instance (Forall Eq p) => Eq (Declaration p)
+deriving instance (Forall Ord p) => Ord (Declaration p)
 
 data FunctionDeclaration p = FunctionDeclaration (XFunDecl p) Identifier [Identifier] (Maybe (Block p))
 deriving instance (Forall Show p) => Show (FunctionDeclaration p)
+deriving instance (Forall Eq p) => Eq (FunctionDeclaration p)
+deriving instance (Forall Ord p) => Ord (FunctionDeclaration p)
 
 data VarDeclaration p = VarDeclaration (XVarDecl p) Identifier (Maybe (Exp p))
 deriving instance (Forall Show p) => Show (VarDeclaration p)
+deriving instance (Forall Eq p) => Eq (VarDeclaration p)
+deriving instance (Forall Ord p) => Ord (VarDeclaration p)
 
 data BlockItem p = BlockDeclaration (Declaration p)
                  | BlockStatement   (Statement p)
             -- | BlockLabel Label -- C23
             -- | BlockStatement UnlabeledStatement -- C23
 deriving instance (Forall Show p) => Show (BlockItem p)
+deriving instance (Forall Eq p) => Eq (BlockItem p)
+deriving instance (Forall Ord p) => Ord (BlockItem p)
 
 newtype Block p = Block [BlockItem p]
 deriving instance (Forall Show p) => Show (Block p)
+deriving instance (Forall Eq p) => Eq (Block p)
+deriving instance (Forall Ord p) => Ord (Block p)
 
 data Statement p = LabeledStatement   (Label p) (Statement p)
                  | UnlabeledStatement (UnlabeledStatement p)
 deriving instance (Forall Show p) => Show (Statement p)
+deriving instance (Forall Eq p) => Eq (Statement p)
+deriving instance (Forall Ord p) => Ord (Statement p)
 
 data UnlabeledStatement p = Expression (XExpression p) (Exp p)
                           | Compound   (XCompound   p) (Block p)
@@ -59,15 +73,21 @@ data UnlabeledStatement p = Expression (XExpression p) (Exp p)
                           | Return     (XReturn     p) (Exp p)
                           | Null       (XNull       p)
 deriving instance (Forall Show p) => Show (UnlabeledStatement p)
+deriving instance (Forall Eq p) => Eq (UnlabeledStatement p)
+deriving instance (Forall Ord p) => Ord (UnlabeledStatement p)
 
 data Label p = Label   (XLabel   p) Identifier
              | Case    (XCase    p) (XCaseV p)
              | Default (XDefault p)
 deriving instance (Forall Show p) => Show (Label p)
+deriving instance (Forall Eq p) => Eq (Label p)
+deriving instance (Forall Ord p) => Ord (Label p)
 
 data ForInit p = InitDecl (VarDeclaration p)
                | InitExp  (Maybe (Exp p))
 deriving instance (Forall Show p) => Show (ForInit p)
+deriving instance (Forall Eq p) => Eq (ForInit p)
+deriving instance (Forall Ord p) => Ord (ForInit p)
 
 data Exp p = Constant     (XConstant     p) Constant
            | Var          (XVar          p) Identifier
@@ -77,6 +97,8 @@ data Exp p = Constant     (XConstant     p) Constant
            | Conditional  (XConditional  p) (Exp p) (Exp p) (Exp p)
            | FunctionCall (XFunctionCall p) Identifier [Exp p]
 deriving instance (Forall Show p) => Show (Exp p)
+deriving instance (Forall Eq p) => Eq (Exp p)
+deriving instance (Forall Ord p) => Ord (Exp p)
 
 newtype Constant = CInt Int
   deriving (Show, Eq, Ord)
@@ -85,13 +107,13 @@ data UnaryOperator = Complement
                    | Negate
                    | Not
                    | UnaryAssignmentOperator UnaryAssignmentOperator
-  deriving (Show)
+  deriving (Show, Eq, Ord)
 
 data UnaryAssignmentOperator = PreDecrement
                              | PreIncrement
                              | PostDecrement
                              | PostIncrement
-  deriving (Show)
+  deriving (Show, Eq, Ord)
 
 data BinaryOperator = Add
                     | Subtract
@@ -111,7 +133,7 @@ data BinaryOperator = Add
                     | LessOrEqual
                     | Greater
                     | GreaterOrEqual
-  deriving (Show)
+  deriving (Show, Eq, Ord)
 
 data AssignmentOperator = Assign
                         | AddAssign
@@ -124,7 +146,7 @@ data AssignmentOperator = Assign
                         | BitXORAssign
                         | BitShiftLeftAssign
                         | BitShiftRightAssign
-  deriving (Show)
+  deriving (Show, Eq, Ord)
 
 
 -- Binary Operator Precedence --
@@ -195,7 +217,7 @@ instance PrettyPrinter (XCaseV p) => PrettyPrinter (Program p) where
 instance PrettyPrinter (XCaseV p) => PrettyPrinter (FunctionDeclaration p) where
   pretty :: (PrettyPrinter (XCaseV p)) => FunctionDeclaration p -> Text
   pretty (FunctionDeclaration _ name params body) = "int " <> name <> "(" <> T.intercalate ", " (map pretty params) <> ")" <>
-    maybe ";\n" (T.append "{\n" . pretty) body <> "}\n"
+    maybe ";" (\b -> " {\n" <> pretty b <> "}") body <> "\n"
 
 instance PrettyPrinter (XCaseV p) => PrettyPrinter (Block p) where
   pretty :: (PrettyPrinter (XCaseV p)) => Block p -> Text

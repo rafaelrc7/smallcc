@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds         #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE InstanceSigs      #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -18,154 +19,193 @@ import           Parser.AST             (BinaryOperator (..), Block (..),
                                          XCaseV, XCompound, XConditional,
                                          XConstant, XContinue, XDefault,
                                          XDoWhile, XExpression, XFor, XFunDecl,
-                                         XGoto, XIf, XLabel, XNull, XReturn,
-                                         XSwitch, XUnary, XVar, XVarDecl,
-                                         XWhile)
+                                         XFunctionCall, XGoto, XIf, XLabel,
+                                         XNull, XReturn, XSwitch, XUnary, XVar,
+                                         XVarDecl, XWhile)
 import           SemanticAnalyzer.Error (SemanticError (..))
 
 import           Control.Applicative    (asum)
+import           Control.Monad          (when)
 import           Control.Monad.Except   (Except, MonadError (..))
 import           Control.Monad.State    (StateT, gets, modify)
 import           Data.Bits              (Bits (complement), shiftL, shiftR, xor,
                                          (.&.), (.|.))
-import           Data.Map               (Map)
+import           Data.Map               (Map, (!))
 import qualified Data.Map               as M
-import           Data.Maybe             (fromMaybe)
+import           Data.Maybe             (fromMaybe, isJust, isNothing)
+import           Data.Set               (Set)
+import qualified Data.Set               as S
 import qualified Data.Text              as T
 import           Numeric.Natural        (Natural)
 import           Parser.ParserMonad     (ParserPhase)
 
-data VariableResolvingPhase
+data IdentifierResolutionPhase
 data LabelResolvingPhase
 data SwitchResolvingPhase
+data TypeCheckingPhase
 
-type instance XExpression  VariableResolvingPhase = ()
-type instance XCompound    VariableResolvingPhase = ()
-type instance XIf          VariableResolvingPhase = ()
-type instance XSwitch      VariableResolvingPhase = ()
-type instance XWhile       VariableResolvingPhase = ()
-type instance XDoWhile     VariableResolvingPhase = ()
-type instance XFor         VariableResolvingPhase = ()
-type instance XGoto        VariableResolvingPhase = ()
-type instance XContinue    VariableResolvingPhase = ()
-type instance XBreak       VariableResolvingPhase = ()
-type instance XReturn      VariableResolvingPhase = ()
-type instance XNull        VariableResolvingPhase = ()
-type instance XLabel       VariableResolvingPhase = ()
-type instance XDefault     VariableResolvingPhase = ()
-type instance XCase        VariableResolvingPhase = ()
-type instance XCaseV       VariableResolvingPhase = Exp VariableResolvingPhase
-type instance XConstant    VariableResolvingPhase = ()
-type instance XVar         VariableResolvingPhase = ()
-type instance XUnary       VariableResolvingPhase = ()
-type instance XBinary      VariableResolvingPhase = ()
-type instance XAssignment  VariableResolvingPhase = ()
-type instance XConditional VariableResolvingPhase = ()
-type instance XFunDecl     VariableResolvingPhase = ()
-type instance XVarDecl     VariableResolvingPhase = ()
+type instance XExpression   IdentifierResolutionPhase = ()
+type instance XCompound     IdentifierResolutionPhase = ()
+type instance XIf           IdentifierResolutionPhase = ()
+type instance XSwitch       IdentifierResolutionPhase = ()
+type instance XWhile        IdentifierResolutionPhase = ()
+type instance XDoWhile      IdentifierResolutionPhase = ()
+type instance XFor          IdentifierResolutionPhase = ()
+type instance XGoto         IdentifierResolutionPhase = ()
+type instance XContinue     IdentifierResolutionPhase = ()
+type instance XBreak        IdentifierResolutionPhase = ()
+type instance XReturn       IdentifierResolutionPhase = ()
+type instance XNull         IdentifierResolutionPhase = ()
+type instance XLabel        IdentifierResolutionPhase = ()
+type instance XDefault      IdentifierResolutionPhase = ()
+type instance XCase         IdentifierResolutionPhase = ()
+type instance XCaseV        IdentifierResolutionPhase = Exp IdentifierResolutionPhase
+type instance XConstant     IdentifierResolutionPhase = ()
+type instance XVar          IdentifierResolutionPhase = ()
+type instance XUnary        IdentifierResolutionPhase = ()
+type instance XBinary       IdentifierResolutionPhase = ()
+type instance XAssignment   IdentifierResolutionPhase = ()
+type instance XConditional  IdentifierResolutionPhase = ()
+type instance XFunDecl      IdentifierResolutionPhase = ()
+type instance XVarDecl      IdentifierResolutionPhase = ()
+type instance XFunctionCall IdentifierResolutionPhase = ()
 
-type instance XExpression  LabelResolvingPhase = ()
-type instance XCompound    LabelResolvingPhase = ()
-type instance XIf          LabelResolvingPhase = ()
-type instance XSwitch      LabelResolvingPhase = Identifier
-type instance XWhile       LabelResolvingPhase = Identifier
-type instance XDoWhile     LabelResolvingPhase = Identifier
-type instance XFor         LabelResolvingPhase = Identifier
-type instance XGoto        LabelResolvingPhase = ()
-type instance XContinue    LabelResolvingPhase = Identifier
-type instance XBreak       LabelResolvingPhase = Identifier
-type instance XReturn      LabelResolvingPhase = ()
-type instance XNull        LabelResolvingPhase = ()
-type instance XLabel       LabelResolvingPhase = ()
-type instance XDefault     LabelResolvingPhase = Identifier
-type instance XCase        LabelResolvingPhase = Identifier
-type instance XCaseV       LabelResolvingPhase = Exp LabelResolvingPhase
-type instance XConstant    LabelResolvingPhase = ()
-type instance XVar         LabelResolvingPhase = ()
-type instance XUnary       LabelResolvingPhase = ()
-type instance XBinary      LabelResolvingPhase = ()
-type instance XAssignment  LabelResolvingPhase = ()
-type instance XConditional LabelResolvingPhase = ()
-type instance XFunDecl     LabelResolvingPhase = ()
-type instance XVarDecl     LabelResolvingPhase = ()
+type instance XExpression   LabelResolvingPhase = ()
+type instance XCompound     LabelResolvingPhase = ()
+type instance XIf           LabelResolvingPhase = ()
+type instance XSwitch       LabelResolvingPhase = Identifier
+type instance XWhile        LabelResolvingPhase = Identifier
+type instance XDoWhile      LabelResolvingPhase = Identifier
+type instance XFor          LabelResolvingPhase = Identifier
+type instance XGoto         LabelResolvingPhase = ()
+type instance XContinue     LabelResolvingPhase = Identifier
+type instance XBreak        LabelResolvingPhase = Identifier
+type instance XReturn       LabelResolvingPhase = ()
+type instance XNull         LabelResolvingPhase = ()
+type instance XLabel        LabelResolvingPhase = ()
+type instance XDefault      LabelResolvingPhase = Identifier
+type instance XCase         LabelResolvingPhase = Identifier
+type instance XCaseV        LabelResolvingPhase = Exp LabelResolvingPhase
+type instance XConstant     LabelResolvingPhase = ()
+type instance XVar          LabelResolvingPhase = ()
+type instance XUnary        LabelResolvingPhase = ()
+type instance XBinary       LabelResolvingPhase = ()
+type instance XAssignment   LabelResolvingPhase = ()
+type instance XConditional  LabelResolvingPhase = ()
+type instance XFunDecl      LabelResolvingPhase = ()
+type instance XVarDecl      LabelResolvingPhase = ()
+type instance XFunctionCall LabelResolvingPhase = ()
 
 data SwitchLabel = SCase Constant
                  | SDefault
   deriving (Show, Eq, Ord)
 
-type instance XExpression  SwitchResolvingPhase = ()
-type instance XCompound    SwitchResolvingPhase = ()
-type instance XIf          SwitchResolvingPhase = ()
-type instance XSwitch      SwitchResolvingPhase = (Identifier, Map SwitchLabel Identifier)
-type instance XWhile       SwitchResolvingPhase = Identifier
-type instance XDoWhile     SwitchResolvingPhase = Identifier
-type instance XFor         SwitchResolvingPhase = Identifier
-type instance XGoto        SwitchResolvingPhase = ()
-type instance XContinue    SwitchResolvingPhase = Identifier
-type instance XBreak       SwitchResolvingPhase = Identifier
-type instance XReturn      SwitchResolvingPhase = ()
-type instance XNull        SwitchResolvingPhase = ()
-type instance XLabel       SwitchResolvingPhase = ()
-type instance XDefault     SwitchResolvingPhase = Identifier
-type instance XCase        SwitchResolvingPhase = Identifier
-type instance XCaseV       SwitchResolvingPhase = Constant
-type instance XConstant    SwitchResolvingPhase = ()
-type instance XVar         SwitchResolvingPhase = ()
-type instance XUnary       SwitchResolvingPhase = ()
-type instance XBinary      SwitchResolvingPhase = ()
-type instance XAssignment  SwitchResolvingPhase = ()
-type instance XConditional SwitchResolvingPhase = ()
-type instance XFunDecl     SwitchResolvingPhase = ()
-type instance XVarDecl     SwitchResolvingPhase = ()
+type instance XExpression   SwitchResolvingPhase = ()
+type instance XCompound     SwitchResolvingPhase = ()
+type instance XIf           SwitchResolvingPhase = ()
+type instance XSwitch       SwitchResolvingPhase = (Identifier, Map SwitchLabel Identifier)
+type instance XWhile        SwitchResolvingPhase = Identifier
+type instance XDoWhile      SwitchResolvingPhase = Identifier
+type instance XFor          SwitchResolvingPhase = Identifier
+type instance XGoto         SwitchResolvingPhase = ()
+type instance XContinue     SwitchResolvingPhase = Identifier
+type instance XBreak        SwitchResolvingPhase = Identifier
+type instance XReturn       SwitchResolvingPhase = ()
+type instance XNull         SwitchResolvingPhase = ()
+type instance XLabel        SwitchResolvingPhase = ()
+type instance XDefault      SwitchResolvingPhase = Identifier
+type instance XCase         SwitchResolvingPhase = Identifier
+type instance XCaseV        SwitchResolvingPhase = Constant
+type instance XConstant     SwitchResolvingPhase = ()
+type instance XVar          SwitchResolvingPhase = ()
+type instance XUnary        SwitchResolvingPhase = ()
+type instance XBinary       SwitchResolvingPhase = ()
+type instance XAssignment   SwitchResolvingPhase = ()
+type instance XConditional  SwitchResolvingPhase = ()
+type instance XFunDecl      SwitchResolvingPhase = ()
+type instance XVarDecl      SwitchResolvingPhase = ()
+type instance XFunctionCall SwitchResolvingPhase = ()
 
-type IdentifierMap = Map Identifier Identifier
+data Typ = Int
+         | Fun [Typ] Typ
+  deriving (Show, Eq, Ord)
 
-emptyIdentifierMap :: IdentifierMap
-emptyIdentifierMap = M.empty
+type instance XExpression   TypeCheckingPhase = Typ
+type instance XCompound     TypeCheckingPhase = ()
+type instance XIf           TypeCheckingPhase = ()
+type instance XSwitch       TypeCheckingPhase = (Identifier, Map SwitchLabel Identifier)
+type instance XWhile        TypeCheckingPhase = Identifier
+type instance XDoWhile      TypeCheckingPhase = Identifier
+type instance XFor          TypeCheckingPhase = Identifier
+type instance XGoto         TypeCheckingPhase = ()
+type instance XContinue     TypeCheckingPhase = Identifier
+type instance XBreak        TypeCheckingPhase = Identifier
+type instance XReturn       TypeCheckingPhase = ()
+type instance XNull         TypeCheckingPhase = ()
+type instance XLabel        TypeCheckingPhase = ()
+type instance XDefault      TypeCheckingPhase = Identifier
+type instance XCase         TypeCheckingPhase = Identifier
+type instance XCaseV        TypeCheckingPhase = Constant
+type instance XConstant     TypeCheckingPhase = Typ
+type instance XVar          TypeCheckingPhase = Typ
+type instance XUnary        TypeCheckingPhase = Typ
+type instance XBinary       TypeCheckingPhase = Typ
+type instance XAssignment   TypeCheckingPhase = Typ
+type instance XConditional  TypeCheckingPhase = Typ
+type instance XFunctionCall TypeCheckingPhase = Typ
+type instance XFunDecl      TypeCheckingPhase = Typ
+type instance XVarDecl      TypeCheckingPhase = Typ
 
 data EnclosingLabel = LLoop   Identifier
                     | LSwitch Identifier
 
 data Environment = Environment { envFunctionName       :: Maybe Identifier
-                               , envVarCounter         :: Natural
-                               , envCurrentScopeVarEnv :: IdentifierMap
-                               , envUpperScopesVarEnvs :: [IdentifierMap]
-                               , envLabelCounter       :: Natural
-                               , envLabelEnv           :: IdentifierMap
+                               , envIdentifierCounter  :: Natural
+                               , envCurrentScope       :: Map Identifier (Identifier, Bool)
+                               , envEnclosingScopes    :: [Map Identifier (Identifier, Bool)]
+                               , envLabelEnv           :: Map Identifier Identifier
                                , envEnclosingLabels    :: [EnclosingLabel]
                                , envSwitchLabels       :: Maybe (Map SwitchLabel Identifier)
+                               , envSymbolTypes        :: Map Identifier Typ
+                               , envDefinedFunctions   :: Set Identifier
                                }
 
 emptyEnvironment :: Environment
 emptyEnvironment = Environment { envFunctionName       = Nothing
-                               , envVarCounter         = 0
-                               , envCurrentScopeVarEnv = emptyIdentifierMap
-                               , envUpperScopesVarEnvs = []
-                               , envLabelCounter       = 0
-                               , envLabelEnv           = emptyIdentifierMap
+                               , envIdentifierCounter  = 0
+                               , envCurrentScope       = M.empty
+                               , envEnclosingScopes    = []
+                               , envLabelEnv           = M.empty
                                , envEnclosingLabels    = []
                                , envSwitchLabels       = Nothing
+                               , envSymbolTypes        = M.empty
+                               , envDefinedFunctions   = S.empty
                                }
 
 type SemanticAnalyzerMonad a = StateT Environment (Except SemanticError) a
 
-resolveVar :: Identifier -> SemanticAnalyzerMonad Identifier
-resolveVar var =
-  do varCounter <- gets envVarCounter
-     varEnv     <- gets envCurrentScopeVarEnv
-     if var `M.member` varEnv then
-       throwError $ DuplicateVariableDeclaration var
-     else do
-       let varCounter' = succ varCounter
-       let var' = "var." <> var <> "." <> T.pack (show varCounter')
-       let varEnv' = M.insert var var' varEnv
-       modify (\env -> env { envCurrentScopeVarEnv = varEnv', envVarCounter = varCounter' })
-       return var'
+resolveNewIdentifier :: Bool -> Identifier -> SemanticAnalyzerMonad Identifier
+resolveNewIdentifier hasLinkage name =
+  do currentScope <- gets envCurrentScope
+     case M.lookup name currentScope of
+       Just (_, False)                 -> throwError $ DuplicateDeclaration name
+       Just (_, True) | not hasLinkage -> throwError $ DuplicateDeclaration name
+       _                               ->
+          do name' <- if hasLinkage then
+                         return name
+                        else do
+                          identifierCounter <- gets envIdentifierCounter
+                          let identifierCounter' = succ identifierCounter
+                          modify (\env -> env { envIdentifierCounter = identifierCounter' })
+                          return $ name <> "." <> T.pack (show identifierCounter')
+             let currentScope' = M.insert name (name', hasLinkage) currentScope
+             modify (\env -> env { envCurrentScope = currentScope' })
+             return name'
 
 resolveLabel :: Identifier -> SemanticAnalyzerMonad Identifier
 resolveLabel label =
   do functionName <- gets envFunctionName
-     labelCounter <- gets envLabelCounter
+     labelCounter <- gets envIdentifierCounter
      labelEnv     <- gets envLabelEnv
      if label `M.member` labelEnv then
        throwError $ DuplicateLabelDeclaration label
@@ -173,24 +213,25 @@ resolveLabel label =
        let labelCounter' = succ labelCounter
        let label' = ".L" <> fromMaybe "" functionName <> "." <> label <> "." <> T.pack (show labelCounter')
        let labelEnv' = M.insert label label' labelEnv
-       modify (\env -> env { envLabelEnv = labelEnv', envLabelCounter = labelCounter' })
+       modify (\env -> env { envLabelEnv = labelEnv', envIdentifierCounter = labelCounter' })
        return label'
 
 newLabel :: Identifier -> SemanticAnalyzerMonad Identifier
 newLabel caption =
   do functionName <- gets envFunctionName
-     labelCounter <- gets envLabelCounter
+     labelCounter <- gets envIdentifierCounter
      let labelCounter' = succ labelCounter
      let label' = ".L" <> fromMaybe "" functionName <> "." <> caption <> "." <> T.pack (show labelCounter')
-     modify (\env -> env { envLabelCounter = labelCounter' })
+     modify (\env -> env { envIdentifierCounter = labelCounter' })
      return label'
 
-getVar :: Identifier -> SemanticAnalyzerMonad Identifier
-getVar var = do currentScopeVarEnv <- gets envCurrentScopeVarEnv
-                upperScopeVarEnvs  <- gets envUpperScopesVarEnvs
-                case asum $ map (M.lookup var) $ currentScopeVarEnv : upperScopeVarEnvs of
-                  Nothing   -> throwError $ UndefinedVariableUse var
-                  Just var' -> return var'
+
+getIdentifier :: Identifier -> SemanticAnalyzerMonad Identifier
+getIdentifier identifier = do currentScopeVarEnv <- gets envCurrentScope
+                              upperScopeVarEnvs  <- gets envEnclosingScopes
+                              case asum $ map (M.lookup identifier) $ currentScopeVarEnv : upperScopeVarEnvs of
+                                Nothing          -> throwError $ UndefinedIdentifierUse identifier
+                                Just (identifier', _) -> return identifier'
 
 getLabel :: Identifier -> SemanticAnalyzerMonad Identifier
 getLabel label = do m <- gets envLabelEnv
@@ -207,11 +248,11 @@ localState push pop action =
 
 withNewVarScope :: SemanticAnalyzerMonad a -> SemanticAnalyzerMonad a
 withNewVarScope action =
-    do currentScopeVarEnv <- gets envCurrentScopeVarEnv
-       upperScopesVarEnvs <- gets envUpperScopesVarEnvs
+    do currentScopeVarEnv <- gets envCurrentScope
+       upperScopesVarEnvs <- gets envEnclosingScopes
        localState
-         (\env -> env { envCurrentScopeVarEnv = emptyIdentifierMap, envUpperScopesVarEnvs = currentScopeVarEnv : upperScopesVarEnvs })
-         (\env -> env { envCurrentScopeVarEnv = currentScopeVarEnv, envUpperScopesVarEnvs = upperScopesVarEnvs })
+         (\env -> env { envCurrentScope = M.empty, envEnclosingScopes = currentScopeVarEnv : upperScopesVarEnvs })
+         (\env -> env { envCurrentScope = currentScopeVarEnv, envEnclosingScopes = upperScopesVarEnvs })
          action
 
 withEnclosingLabel :: EnclosingLabel -> SemanticAnalyzerMonad a -> SemanticAnalyzerMonad a
@@ -302,149 +343,183 @@ intToBool :: Int -> Bool
 intToBool 0 = False
 intToBool _ = True
 
+getExpType :: Exp TypeCheckingPhase -> Typ
+getExpType (Constant     typ _)     = typ
+getExpType (Var          typ _)     = typ
+getExpType (Unary        typ _ _)   = typ
+getExpType (Binary       typ _ _ _) = typ
+getExpType (Assignment   typ _ _ _) = typ
+getExpType (Conditional  typ _ _ _) = typ
+getExpType (FunctionCall typ _ _)   = typ
+
+getConstType :: Constant-> Typ
+getConstType (CInt _) = Int
+
+addSymbolType :: Identifier -> Typ -> SemanticAnalyzerMonad ()
+addSymbolType name typ =
+  do symbolTypes <- gets envSymbolTypes
+     modify (\env -> env { envSymbolTypes = M.insert name typ symbolTypes })
+
+
 (<$?>) :: Applicative f => (t -> f a) -> Maybe t -> f (Maybe a)
 f <$?> x = case x of
   Just x' -> Just <$> f x'
   Nothing -> pure Nothing
 
-class VariableResolver a where
-  resolveVariable :: a ParserPhase -> SemanticAnalyzerMonad (a VariableResolvingPhase)
+class IdentifierResolver a where
+  resolveIdentifiers :: a ParserPhase -> SemanticAnalyzerMonad (a IdentifierResolutionPhase)
 
 class LabelResolver a where
-  resolveLabelDeclaration :: a VariableResolvingPhase -> SemanticAnalyzerMonad (a VariableResolvingPhase)
-  resolveLabelReference :: a VariableResolvingPhase -> SemanticAnalyzerMonad (a LabelResolvingPhase)
+  resolveLabelDeclaration :: a IdentifierResolutionPhase -> SemanticAnalyzerMonad (a IdentifierResolutionPhase)
+  resolveLabelReference :: a IdentifierResolutionPhase -> SemanticAnalyzerMonad (a LabelResolvingPhase)
 
 class SwitchResolver a where
   resolveSwitch :: a LabelResolvingPhase -> SemanticAnalyzerMonad (a SwitchResolvingPhase)
 
+class TypeChecker a where
+  resolveTypes :: a SwitchResolvingPhase -> SemanticAnalyzerMonad (a TypeCheckingPhase)
 
-instance VariableResolver Program where
-  resolveVariable :: Program ParserPhase -> SemanticAnalyzerMonad (Program VariableResolvingPhase)
-  resolveVariable (Program func) = Program <$> mapM resolveVariable func
 
-instance VariableResolver Declaration where
-  resolveVariable :: Declaration ParserPhase -> SemanticAnalyzerMonad (Declaration VariableResolvingPhase)
-  resolveVariable (FunDecl decl) = FunDecl <$> resolveVariable decl
-  resolveVariable (VarDecl decl) = VarDecl <$> resolveVariable decl
+instance IdentifierResolver Program where
+  resolveIdentifiers :: Program ParserPhase -> SemanticAnalyzerMonad (Program IdentifierResolutionPhase)
+  resolveIdentifiers (Program func) = Program <$> mapM resolveIdentifiers func
 
-instance VariableResolver FunctionDeclaration where
-  resolveVariable :: FunctionDeclaration ParserPhase -> SemanticAnalyzerMonad (FunctionDeclaration VariableResolvingPhase)
-  resolveVariable (FunctionDeclaration _ name params body) = modify (\env -> env { envFunctionName = Just name }) >> FunctionDeclaration () name params <$> (resolveVariable <$?> body)
+instance IdentifierResolver Declaration where
+  resolveIdentifiers :: Declaration ParserPhase -> SemanticAnalyzerMonad (Declaration IdentifierResolutionPhase)
+  resolveIdentifiers (FunDecl decl) = FunDecl <$> resolveIdentifiers decl
+  resolveIdentifiers (VarDecl decl) = VarDecl <$> resolveIdentifiers decl
 
-instance VariableResolver Block where
-  resolveVariable :: Block ParserPhase -> SemanticAnalyzerMonad (Block VariableResolvingPhase)
-  resolveVariable (Block blockItens) = withNewVarScope $ Block <$> mapM resolveVariable blockItens
+instance IdentifierResolver FunctionDeclaration where
+  resolveIdentifiers :: FunctionDeclaration ParserPhase -> SemanticAnalyzerMonad (FunctionDeclaration IdentifierResolutionPhase)
+  resolveIdentifiers (FunctionDeclaration _ name params body) =
+    do name' <- resolveNewIdentifier True name
+       currentName <- gets envFunctionName
+       modify (\env -> env { envFunctionName = Just name })
+       fun <- withNewVarScope $ do
+         params' <- mapM (resolveNewIdentifier False) params
+         body' <- case body of
+                    Nothing            -> return Nothing
+                    Just (Block body') -> if isNothing currentName then Just <$> (Block <$> mapM resolveIdentifiers body')
+                                                                   else throwError NestedFunctionDefinition
+         return $ FunctionDeclaration () name' params' body'
+       modify (\env -> env { envFunctionName = currentName })
+       return fun
 
-instance VariableResolver BlockItem where
-  resolveVariable :: BlockItem ParserPhase -> SemanticAnalyzerMonad (BlockItem VariableResolvingPhase)
-  resolveVariable (BlockStatement   stmt) = BlockStatement   <$> resolveVariable stmt
-  resolveVariable (BlockDeclaration decl) = BlockDeclaration <$> resolveVariable decl
+instance IdentifierResolver Block where
+  resolveIdentifiers :: Block ParserPhase -> SemanticAnalyzerMonad (Block IdentifierResolutionPhase)
+  resolveIdentifiers (Block blockItens) = withNewVarScope $ Block <$> mapM resolveIdentifiers blockItens
 
-instance VariableResolver VarDeclaration where
-  resolveVariable :: VarDeclaration ParserPhase -> SemanticAnalyzerMonad (VarDeclaration VariableResolvingPhase)
-  resolveVariable (VarDeclaration () var initialisation) = VarDeclaration () <$> resolveVar var <*> (resolveVariable <$?> initialisation)
+instance IdentifierResolver BlockItem where
+  resolveIdentifiers :: BlockItem ParserPhase -> SemanticAnalyzerMonad (BlockItem IdentifierResolutionPhase)
+  resolveIdentifiers (BlockStatement   stmt) = BlockStatement   <$> resolveIdentifiers stmt
+  resolveIdentifiers (BlockDeclaration decl) = BlockDeclaration <$> resolveIdentifiers decl
 
-instance VariableResolver Statement where
-  resolveVariable :: Statement ParserPhase -> SemanticAnalyzerMonad (Statement VariableResolvingPhase)
-  resolveVariable (LabeledStatement label stmt) = LabeledStatement   <$> resolveVariable label <*> resolveVariable stmt
-  resolveVariable (UnlabeledStatement stmt)     = UnlabeledStatement <$> resolveVariable stmt
+instance IdentifierResolver VarDeclaration where
+  resolveIdentifiers :: VarDeclaration ParserPhase -> SemanticAnalyzerMonad (VarDeclaration IdentifierResolutionPhase)
+  resolveIdentifiers (VarDeclaration () var initialisation) = VarDeclaration () <$> resolveNewIdentifier False var <*> (resolveIdentifiers <$?> initialisation)
 
-instance VariableResolver UnlabeledStatement where
-  resolveVariable :: UnlabeledStatement ParserPhase -> SemanticAnalyzerMonad (UnlabeledStatement VariableResolvingPhase)
-  resolveVariable (Expression () expr)               = Expression () <$> resolveVariable expr
-  resolveVariable (Compound   () block)              = Compound   () <$> resolveVariable block
-  resolveVariable (If         () cond conseq altern) = If         () <$> resolveVariable cond <*> resolveVariable conseq <*> (resolveVariable <$?> altern)
-  resolveVariable (Switch     () expr body)          = Switch     () <$> resolveVariable expr <*> resolveVariable body
-  resolveVariable (While      () cond body)          = While      () <$> resolveVariable cond <*> resolveVariable body
-  resolveVariable (DoWhile    () body cond)          = DoWhile    () <$> resolveVariable body <*> resolveVariable cond
-  resolveVariable (For        () ini cond post body) = withNewVarScope $ For () <$> resolveVariable ini <*> (resolveVariable <$?> cond) <*> (resolveVariable <$?> post) <*> resolveVariable body
-  resolveVariable (Goto       () label)              = pure $ Goto     () label
-  resolveVariable (Continue   ())                    = pure $ Continue ()
-  resolveVariable (Break      ())                    = pure $ Break    ()
-  resolveVariable (Return     () expr)               = Return     () <$> resolveVariable expr
-  resolveVariable (Null       ())                    = pure $ Null     ()
+instance IdentifierResolver Statement where
+  resolveIdentifiers :: Statement ParserPhase -> SemanticAnalyzerMonad (Statement IdentifierResolutionPhase)
+  resolveIdentifiers (LabeledStatement label stmt) = LabeledStatement   <$> resolveIdentifiers label <*> resolveIdentifiers stmt
+  resolveIdentifiers (UnlabeledStatement stmt)     = UnlabeledStatement <$> resolveIdentifiers stmt
 
-instance VariableResolver ForInit where
-  resolveVariable :: ForInit ParserPhase -> SemanticAnalyzerMonad (ForInit VariableResolvingPhase)
-  resolveVariable (InitDecl  decl) = InitDecl <$> resolveVariable decl
-  resolveVariable (InitExp   expr) = InitExp  <$> (resolveVariable <$?> expr)
+instance IdentifierResolver UnlabeledStatement where
+  resolveIdentifiers :: UnlabeledStatement ParserPhase -> SemanticAnalyzerMonad (UnlabeledStatement IdentifierResolutionPhase)
+  resolveIdentifiers (Expression () expr)               = Expression () <$> resolveIdentifiers expr
+  resolveIdentifiers (Compound   () block)              = Compound   () <$> resolveIdentifiers block
+  resolveIdentifiers (If         () cond conseq altern) = If         () <$> resolveIdentifiers cond <*> resolveIdentifiers conseq <*> (resolveIdentifiers <$?> altern)
+  resolveIdentifiers (Switch     () expr body)          = Switch     () <$> resolveIdentifiers expr <*> resolveIdentifiers body
+  resolveIdentifiers (While      () cond body)          = While      () <$> resolveIdentifiers cond <*> resolveIdentifiers body
+  resolveIdentifiers (DoWhile    () body cond)          = DoWhile    () <$> resolveIdentifiers body <*> resolveIdentifiers cond
+  resolveIdentifiers (For        () ini cond post body) = withNewVarScope $ For () <$> resolveIdentifiers ini <*> (resolveIdentifiers <$?> cond) <*> (resolveIdentifiers <$?> post) <*> resolveIdentifiers body
+  resolveIdentifiers (Goto       () label)              = pure $ Goto     () label
+  resolveIdentifiers (Continue   ())                    = pure $ Continue ()
+  resolveIdentifiers (Break      ())                    = pure $ Break    ()
+  resolveIdentifiers (Return     () expr)               = Return     () <$> resolveIdentifiers expr
+  resolveIdentifiers (Null       ())                    = pure $ Null     ()
 
-instance VariableResolver Label where
-  resolveVariable :: Label ParserPhase -> SemanticAnalyzerMonad (Label VariableResolvingPhase)
-  resolveVariable (Case    () expr)  = Case () <$> resolveVariable expr
-  resolveVariable (Label   () label) = pure $ Label   () label
-  resolveVariable (Default ())       = pure $ Default ()
+instance IdentifierResolver ForInit where
+  resolveIdentifiers :: ForInit ParserPhase -> SemanticAnalyzerMonad (ForInit IdentifierResolutionPhase)
+  resolveIdentifiers (InitDecl  decl) = InitDecl <$> resolveIdentifiers decl
+  resolveIdentifiers (InitExp   expr) = InitExp  <$> (resolveIdentifiers <$?> expr)
 
-instance VariableResolver Exp where
-  resolveVariable :: Exp ParserPhase -> SemanticAnalyzerMonad (Exp VariableResolvingPhase)
-  resolveVariable (Constant    () cons)                                         = pure $ Constant () cons
-  resolveVariable (Var         () var)                                          = Var         ()    <$> getVar var
-  resolveVariable (Unary       () op@(UnaryAssignmentOperator _) lhs@(Var _ _)) = Unary       () op <$> resolveVariable lhs
-  resolveVariable (Unary       () (UnaryAssignmentOperator _)    _)             = throwError InvalidLHS
-  resolveVariable (Unary       () op expr)                                      = Unary       () op <$> resolveVariable expr
-  resolveVariable (Binary      () op expr1 expr2)                               = Binary      () op <$> resolveVariable expr1 <*> resolveVariable expr2
-  resolveVariable (Assignment  () lhs@(Var _ _) op rhs)                         = Assignment  ()    <$> resolveVariable lhs   <*> pure op                <*> resolveVariable rhs
-  resolveVariable (Assignment  () _ _ _)                                        = throwError InvalidLHS
-  resolveVariable (Conditional () cond conseq altern)                           = Conditional ()    <$> resolveVariable cond  <*> resolveVariable conseq <*> resolveVariable altern
+instance IdentifierResolver Label where
+  resolveIdentifiers :: Label ParserPhase -> SemanticAnalyzerMonad (Label IdentifierResolutionPhase)
+  resolveIdentifiers (Case    () expr)  = Case () <$> resolveIdentifiers expr
+  resolveIdentifiers (Label   () label) = pure $ Label   () label
+  resolveIdentifiers (Default ())       = pure $ Default ()
+
+instance IdentifierResolver Exp where
+  resolveIdentifiers :: Exp ParserPhase -> SemanticAnalyzerMonad (Exp IdentifierResolutionPhase)
+  resolveIdentifiers (Constant     () cons)                                         = pure $ Constant () cons
+  resolveIdentifiers (Var          () var)                                          = Var          ()    <$> getIdentifier var
+  resolveIdentifiers (Unary        () op@(UnaryAssignmentOperator _) lhs@(Var _ _)) = Unary        () op <$> resolveIdentifiers lhs
+  resolveIdentifiers (Unary        () (UnaryAssignmentOperator _)    _)             = throwError InvalidLHS
+  resolveIdentifiers (Unary        () op expr)                                      = Unary        () op <$> resolveIdentifiers expr
+  resolveIdentifiers (Binary       () op expr1 expr2)                               = Binary       () op <$> resolveIdentifiers expr1 <*> resolveIdentifiers expr2
+  resolveIdentifiers (Assignment   () lhs@(Var _ _) op rhs)                         = Assignment   ()    <$> resolveIdentifiers lhs   <*> pure op                <*> resolveIdentifiers rhs
+  resolveIdentifiers (Assignment   () _ _ _)                                        = throwError InvalidLHS
+  resolveIdentifiers (Conditional  () cond conseq altern)                           = Conditional  ()    <$> resolveIdentifiers cond  <*> resolveIdentifiers conseq <*> resolveIdentifiers altern
+  resolveIdentifiers (FunctionCall () name args)                                    = FunctionCall ()    <$> getIdentifier name       <*> mapM resolveIdentifiers args
 
 
 instance LabelResolver Program where
-  resolveLabelDeclaration :: Program VariableResolvingPhase -> SemanticAnalyzerMonad (Program VariableResolvingPhase)
+  resolveLabelDeclaration :: Program IdentifierResolutionPhase -> SemanticAnalyzerMonad (Program IdentifierResolutionPhase)
   resolveLabelDeclaration (Program func) = Program <$> mapM resolveLabelDeclaration func
 
-  resolveLabelReference :: Program VariableResolvingPhase -> SemanticAnalyzerMonad (Program LabelResolvingPhase)
+  resolveLabelReference :: Program IdentifierResolutionPhase -> SemanticAnalyzerMonad (Program LabelResolvingPhase)
   resolveLabelReference (Program func) = Program <$> mapM resolveLabelReference func
 
 instance LabelResolver Declaration where
-  resolveLabelDeclaration :: Declaration VariableResolvingPhase -> SemanticAnalyzerMonad (Declaration VariableResolvingPhase)
+  resolveLabelDeclaration :: Declaration IdentifierResolutionPhase -> SemanticAnalyzerMonad (Declaration IdentifierResolutionPhase)
   resolveLabelDeclaration (FunDecl decl) = FunDecl <$> resolveLabelDeclaration decl
   resolveLabelDeclaration (VarDecl decl) = VarDecl <$> resolveLabelDeclaration decl
 
-  resolveLabelReference :: Declaration VariableResolvingPhase -> SemanticAnalyzerMonad (Declaration LabelResolvingPhase)
+  resolveLabelReference :: Declaration IdentifierResolutionPhase -> SemanticAnalyzerMonad (Declaration LabelResolvingPhase)
   resolveLabelReference (FunDecl decl) = FunDecl <$> resolveLabelReference decl
   resolveLabelReference (VarDecl decl) = VarDecl <$> resolveLabelReference decl
 
 instance LabelResolver FunctionDeclaration where
-  resolveLabelDeclaration :: FunctionDeclaration VariableResolvingPhase -> SemanticAnalyzerMonad (FunctionDeclaration VariableResolvingPhase)
+  resolveLabelDeclaration :: FunctionDeclaration IdentifierResolutionPhase -> SemanticAnalyzerMonad (FunctionDeclaration IdentifierResolutionPhase)
   resolveLabelDeclaration (FunctionDeclaration _ name params body) = modify (\env -> env { envFunctionName = Just name }) >> FunctionDeclaration () name params <$> (resolveLabelDeclaration <$?> body)
 
-  resolveLabelReference :: FunctionDeclaration VariableResolvingPhase -> SemanticAnalyzerMonad (FunctionDeclaration LabelResolvingPhase)
+  resolveLabelReference :: FunctionDeclaration IdentifierResolutionPhase -> SemanticAnalyzerMonad (FunctionDeclaration LabelResolvingPhase)
   resolveLabelReference (FunctionDeclaration _ name params body) = modify (\env -> env { envFunctionName = Just name }) >> FunctionDeclaration () name params <$> resolveLabelReference <$?> body
 
 instance LabelResolver Block where
-  resolveLabelDeclaration :: Block VariableResolvingPhase -> SemanticAnalyzerMonad (Block VariableResolvingPhase)
+  resolveLabelDeclaration :: Block IdentifierResolutionPhase -> SemanticAnalyzerMonad (Block IdentifierResolutionPhase)
   resolveLabelDeclaration (Block blockItens) = Block <$> mapM resolveLabelDeclaration blockItens
 
-  resolveLabelReference :: Block VariableResolvingPhase -> SemanticAnalyzerMonad (Block LabelResolvingPhase)
+  resolveLabelReference :: Block IdentifierResolutionPhase -> SemanticAnalyzerMonad (Block LabelResolvingPhase)
   resolveLabelReference (Block blockItens) = Block <$> mapM resolveLabelReference blockItens
 
 instance LabelResolver BlockItem where
-  resolveLabelDeclaration :: BlockItem VariableResolvingPhase -> SemanticAnalyzerMonad (BlockItem VariableResolvingPhase)
+  resolveLabelDeclaration :: BlockItem IdentifierResolutionPhase -> SemanticAnalyzerMonad (BlockItem IdentifierResolutionPhase)
   resolveLabelDeclaration (BlockStatement   stmt) = BlockStatement   <$> resolveLabelDeclaration stmt
   resolveLabelDeclaration (BlockDeclaration decl) = BlockDeclaration <$> resolveLabelDeclaration decl
 
-  resolveLabelReference :: BlockItem VariableResolvingPhase -> SemanticAnalyzerMonad (BlockItem LabelResolvingPhase)
+  resolveLabelReference :: BlockItem IdentifierResolutionPhase -> SemanticAnalyzerMonad (BlockItem LabelResolvingPhase)
   resolveLabelReference (BlockStatement   stmt) = BlockStatement   <$> resolveLabelReference stmt
   resolveLabelReference (BlockDeclaration decl) = BlockDeclaration <$> resolveLabelReference decl
 
 instance LabelResolver VarDeclaration where
-  resolveLabelDeclaration :: VarDeclaration VariableResolvingPhase -> SemanticAnalyzerMonad (VarDeclaration VariableResolvingPhase)
+  resolveLabelDeclaration :: VarDeclaration IdentifierResolutionPhase -> SemanticAnalyzerMonad (VarDeclaration IdentifierResolutionPhase)
   resolveLabelDeclaration (VarDeclaration () var initialisation) = VarDeclaration () var <$> (resolveLabelDeclaration <$?> initialisation)
 
-  resolveLabelReference :: VarDeclaration VariableResolvingPhase -> SemanticAnalyzerMonad (VarDeclaration LabelResolvingPhase)
+  resolveLabelReference :: VarDeclaration IdentifierResolutionPhase -> SemanticAnalyzerMonad (VarDeclaration LabelResolvingPhase)
   resolveLabelReference (VarDeclaration () var initialisation) = VarDeclaration () var <$> (resolveLabelReference <$?> initialisation)
 
 instance LabelResolver Statement where
-  resolveLabelDeclaration :: Statement VariableResolvingPhase -> SemanticAnalyzerMonad (Statement VariableResolvingPhase)
+  resolveLabelDeclaration :: Statement IdentifierResolutionPhase -> SemanticAnalyzerMonad (Statement IdentifierResolutionPhase)
   resolveLabelDeclaration (LabeledStatement label stmt) = LabeledStatement   <$> resolveLabelDeclaration label <*> resolveLabelDeclaration stmt
   resolveLabelDeclaration (UnlabeledStatement stmt)     = UnlabeledStatement <$> resolveLabelDeclaration stmt
 
-  resolveLabelReference :: Statement VariableResolvingPhase -> SemanticAnalyzerMonad (Statement LabelResolvingPhase)
+  resolveLabelReference :: Statement IdentifierResolutionPhase -> SemanticAnalyzerMonad (Statement LabelResolvingPhase)
   resolveLabelReference (LabeledStatement label stmt) = LabeledStatement   <$> resolveLabelReference label <*> resolveLabelReference stmt
   resolveLabelReference (UnlabeledStatement stmt)     = UnlabeledStatement <$> resolveLabelReference stmt
 
 instance LabelResolver UnlabeledStatement where
-  resolveLabelDeclaration :: UnlabeledStatement VariableResolvingPhase -> SemanticAnalyzerMonad (UnlabeledStatement VariableResolvingPhase)
+  resolveLabelDeclaration :: UnlabeledStatement IdentifierResolutionPhase -> SemanticAnalyzerMonad (UnlabeledStatement IdentifierResolutionPhase)
   resolveLabelDeclaration (Expression () expr)               = Expression () <$> resolveLabelDeclaration expr
   resolveLabelDeclaration (Compound   () block)              = Compound   () <$> resolveLabelDeclaration block
   resolveLabelDeclaration (If         () cond conseq altern) = If         () <$> resolveLabelDeclaration cond <*> resolveLabelDeclaration conseq <*> (resolveLabelDeclaration <$?> altern)
@@ -458,7 +533,7 @@ instance LabelResolver UnlabeledStatement where
   resolveLabelDeclaration (Return     () expr)               = Return     () <$> resolveLabelDeclaration expr
   resolveLabelDeclaration (Null       ())                    = pure $ Null     ()
 
-  resolveLabelReference :: UnlabeledStatement VariableResolvingPhase -> SemanticAnalyzerMonad (UnlabeledStatement LabelResolvingPhase)
+  resolveLabelReference :: UnlabeledStatement IdentifierResolutionPhase -> SemanticAnalyzerMonad (UnlabeledStatement LabelResolvingPhase)
   resolveLabelReference (Goto       () label)              = Goto       () <$> getLabel label
   resolveLabelReference (Return     () expr)               = Return     () <$> resolveLabelReference expr
   resolveLabelReference (Expression () expr)               = Expression () <$> resolveLabelReference expr
@@ -481,41 +556,43 @@ instance LabelResolver UnlabeledStatement where
        withEnclosingLoop loopLabel $ For loopLabel <$> resolveLabelReference ini <*> (resolveLabelReference <$?> cond) <*> (resolveLabelReference <$?> post) <*> resolveLabelReference body
 
 instance LabelResolver ForInit where
-  resolveLabelDeclaration :: ForInit VariableResolvingPhase -> SemanticAnalyzerMonad (ForInit VariableResolvingPhase)
+  resolveLabelDeclaration :: ForInit IdentifierResolutionPhase -> SemanticAnalyzerMonad (ForInit IdentifierResolutionPhase)
   resolveLabelDeclaration (InitDecl decl) = InitDecl <$> resolveLabelDeclaration decl
   resolveLabelDeclaration (InitExp  expr) = InitExp  <$> (resolveLabelDeclaration <$?> expr)
 
-  resolveLabelReference :: ForInit VariableResolvingPhase -> SemanticAnalyzerMonad (ForInit LabelResolvingPhase)
+  resolveLabelReference :: ForInit IdentifierResolutionPhase -> SemanticAnalyzerMonad (ForInit LabelResolvingPhase)
   resolveLabelReference (InitDecl decl) = InitDecl <$> resolveLabelReference decl
   resolveLabelReference (InitExp  expr) = InitExp  <$> (resolveLabelReference <$?> expr)
 
 instance LabelResolver Label where
-  resolveLabelDeclaration :: Label VariableResolvingPhase -> SemanticAnalyzerMonad (Label VariableResolvingPhase)
+  resolveLabelDeclaration :: Label IdentifierResolutionPhase -> SemanticAnalyzerMonad (Label IdentifierResolutionPhase)
   resolveLabelDeclaration (Label   () label) = Label () <$> resolveLabel label
   resolveLabelDeclaration (Case    () expr)  = pure $ Case    () expr
   resolveLabelDeclaration (Default ())       = pure $ Default ()
 
-  resolveLabelReference :: Label VariableResolvingPhase -> SemanticAnalyzerMonad (Label LabelResolvingPhase)
+  resolveLabelReference :: Label IdentifierResolutionPhase -> SemanticAnalyzerMonad (Label LabelResolvingPhase)
   resolveLabelReference (Case    () expr)  = Case    <$> newLabel "case" <*> resolveLabelReference expr
   resolveLabelReference (Default ())       = Default <$> newLabel "default"
   resolveLabelReference (Label   () label) = pure $ Label   () label
 
 instance LabelResolver Exp where
-  resolveLabelDeclaration :: Exp VariableResolvingPhase -> SemanticAnalyzerMonad (Exp VariableResolvingPhase)
-  resolveLabelDeclaration (Constant    () cons)               = pure $ Constant () cons
-  resolveLabelDeclaration (Var         () var)                = pure $ Var      () var
-  resolveLabelDeclaration (Unary       () op expr)            = Unary       () op <$> resolveLabelDeclaration expr
-  resolveLabelDeclaration (Binary      () op expr1 expr2)     = Binary      () op <$> resolveLabelDeclaration expr1 <*> resolveLabelDeclaration expr2
-  resolveLabelDeclaration (Assignment  () lhs op rhs)         = Assignment  ()    <$> resolveLabelDeclaration lhs   <*> pure op                        <*> resolveLabelDeclaration rhs
-  resolveLabelDeclaration (Conditional () cond conseq altern) = Conditional ()    <$> resolveLabelDeclaration cond  <*> resolveLabelDeclaration conseq <*> resolveLabelDeclaration altern
+  resolveLabelDeclaration :: Exp IdentifierResolutionPhase -> SemanticAnalyzerMonad (Exp IdentifierResolutionPhase)
+  resolveLabelDeclaration (Constant     () cons)               = pure $ Constant     () cons
+  resolveLabelDeclaration (Var          () var)                = pure $ Var          () var
+  resolveLabelDeclaration (Unary        () op expr)            = Unary        () op   <$> resolveLabelDeclaration expr
+  resolveLabelDeclaration (Binary       () op expr1 expr2)     = Binary       () op   <$> resolveLabelDeclaration expr1     <*> resolveLabelDeclaration expr2
+  resolveLabelDeclaration (Assignment   () lhs op rhs)         = Assignment   ()      <$> resolveLabelDeclaration lhs       <*> pure op                        <*> resolveLabelDeclaration rhs
+  resolveLabelDeclaration (Conditional  () cond conseq altern) = Conditional  ()      <$> resolveLabelDeclaration cond      <*> resolveLabelDeclaration conseq <*> resolveLabelDeclaration altern
+  resolveLabelDeclaration (FunctionCall () name args)          = FunctionCall () name <$> mapM resolveLabelDeclaration args
 
-  resolveLabelReference :: Exp VariableResolvingPhase -> SemanticAnalyzerMonad (Exp LabelResolvingPhase)
-  resolveLabelReference (Constant    () cons)               = pure $ Constant () cons
-  resolveLabelReference (Var         () var)                = pure $ Var      () var
-  resolveLabelReference (Unary       () op expr)            = Unary       () op <$> resolveLabelReference expr
-  resolveLabelReference (Binary      () op expr1 expr2)     = Binary      () op <$> resolveLabelReference expr1 <*> resolveLabelReference expr2
-  resolveLabelReference (Assignment  () lhs op rhs)         = Assignment  ()    <$> resolveLabelReference lhs   <*> pure op                        <*> resolveLabelReference rhs
-  resolveLabelReference (Conditional () cond conseq altern) = Conditional ()    <$> resolveLabelReference cond  <*> resolveLabelReference conseq <*> resolveLabelReference altern
+  resolveLabelReference :: Exp IdentifierResolutionPhase -> SemanticAnalyzerMonad (Exp LabelResolvingPhase)
+  resolveLabelReference (Constant     () cons)               = pure $ Constant () cons
+  resolveLabelReference (Var          () var)                = pure $ Var      () var
+  resolveLabelReference (Unary        () op expr)            = Unary        () op  <$> resolveLabelReference expr
+  resolveLabelReference (Binary       () op expr1 expr2)     = Binary       () op  <$> resolveLabelReference expr1 <*> resolveLabelReference expr2
+  resolveLabelReference (Assignment   () lhs op rhs)         = Assignment   ()     <$> resolveLabelReference lhs   <*> pure op                        <*> resolveLabelReference rhs
+  resolveLabelReference (Conditional  () cond conseq altern) = Conditional  ()     <$> resolveLabelReference cond  <*> resolveLabelReference conseq <*> resolveLabelReference altern
+  resolveLabelReference (FunctionCall () name args)          = FunctionCall () name <$> mapM resolveLabelReference args
 
 
 instance SwitchResolver Program where
@@ -603,9 +680,137 @@ instance SwitchResolver Label where
 
 instance SwitchResolver Exp where
   resolveSwitch :: Exp LabelResolvingPhase -> SemanticAnalyzerMonad (Exp SwitchResolvingPhase)
-  resolveSwitch (Constant    () cons)               = pure $ Constant () cons
-  resolveSwitch (Var         () var)                = pure $ Var      () var
-  resolveSwitch (Unary       () op expr)            = Unary       () op <$> resolveSwitch expr
-  resolveSwitch (Binary      () op expr1 expr2)     = Binary      () op <$> resolveSwitch expr1 <*> resolveSwitch expr2
-  resolveSwitch (Assignment  () lhs op rhs)         = Assignment  ()    <$> resolveSwitch lhs   <*> pure op              <*> resolveSwitch rhs
-  resolveSwitch (Conditional () cond conseq altern) = Conditional ()    <$> resolveSwitch cond  <*> resolveSwitch conseq <*> resolveSwitch altern
+  resolveSwitch (Constant     () cons)               = pure $ Constant () cons
+  resolveSwitch (Var          () var)                = pure $ Var      () var
+  resolveSwitch (Unary        () op expr)            = Unary        () op   <$> resolveSwitch expr
+  resolveSwitch (Binary       () op expr1 expr2)     = Binary       () op   <$> resolveSwitch expr1     <*> resolveSwitch expr2
+  resolveSwitch (Assignment   () lhs op rhs)         = Assignment   ()      <$> resolveSwitch lhs       <*> pure op              <*> resolveSwitch rhs
+  resolveSwitch (Conditional  () cond conseq altern) = Conditional  ()      <$> resolveSwitch cond      <*> resolveSwitch conseq <*> resolveSwitch altern
+  resolveSwitch (FunctionCall () name args)          = FunctionCall () name <$> mapM resolveSwitch args
+
+
+instance TypeChecker Program where
+  resolveTypes :: Program SwitchResolvingPhase -> SemanticAnalyzerMonad (Program TypeCheckingPhase)
+  resolveTypes (Program func) = Program <$> mapM resolveTypes func
+
+instance TypeChecker Declaration where
+  resolveTypes :: Declaration SwitchResolvingPhase -> SemanticAnalyzerMonad (Declaration TypeCheckingPhase)
+  resolveTypes (FunDecl decl) = FunDecl <$> resolveTypes decl
+  resolveTypes (VarDecl decl) = VarDecl <$> resolveTypes decl
+
+instance TypeChecker VarDeclaration where
+  resolveTypes :: VarDeclaration SwitchResolvingPhase -> SemanticAnalyzerMonad (VarDeclaration TypeCheckingPhase)
+  resolveTypes (VarDeclaration () name initialisation) =
+    do let varType = Int
+       addSymbolType name varType
+       initialisation' <- case initialisation of
+         Nothing   -> return Nothing
+         Just ini' -> do initialisation' <- resolveTypes ini'
+                         when (varType /= getExpType initialisation') $ throwError IncompatibleTypes
+                         return $ Just initialisation'
+
+       return $ VarDeclaration varType name initialisation'
+
+instance TypeChecker FunctionDeclaration where
+  resolveTypes :: FunctionDeclaration SwitchResolvingPhase -> SemanticAnalyzerMonad (FunctionDeclaration TypeCheckingPhase)
+  resolveTypes (FunctionDeclaration () name params body) = -- FunctionDeclaration (Fun (map (const Int) params) Int) name params <$> (resolveTypes <$?> body)
+    do symbolTypes      <- gets envSymbolTypes
+       definedFunctions <- gets envDefinedFunctions
+
+       let funType = Fun (map (const Int) params) Int
+       let hasBody = isJust body
+
+       case M.lookup name symbolTypes of
+         Just funType' -> do when (funType' /= funType) $ throwError IncompatibleTypes
+                             when (hasBody && S.member name definedFunctions) $ throwError FunctionDefinedMoreThanOnce
+         Nothing       -> pure ()
+
+       modify (\env -> env { envSymbolTypes = M.insert name funType symbolTypes })
+
+       body' <- case body of
+         Just b -> do mapM_ (`addSymbolType` Int) params
+                      modify (\env -> env { envDefinedFunctions = S.insert name definedFunctions })
+                      Just <$> resolveTypes b
+         Nothing -> return Nothing
+
+       return $ FunctionDeclaration funType name params body'
+
+
+instance TypeChecker Block where
+  resolveTypes :: Block SwitchResolvingPhase -> SemanticAnalyzerMonad (Block TypeCheckingPhase)
+  resolveTypes (Block blockItens) = Block <$> mapM resolveTypes blockItens
+
+instance TypeChecker BlockItem where
+  resolveTypes :: BlockItem SwitchResolvingPhase -> SemanticAnalyzerMonad (BlockItem TypeCheckingPhase)
+  resolveTypes (BlockStatement   stmt) = BlockStatement   <$> resolveTypes stmt
+  resolveTypes (BlockDeclaration decl) = BlockDeclaration <$> resolveTypes decl
+
+instance TypeChecker Statement where
+  resolveTypes :: Statement SwitchResolvingPhase -> SemanticAnalyzerMonad (Statement TypeCheckingPhase)
+  resolveTypes (LabeledStatement label stmt) = LabeledStatement   <$> resolveTypes label <*> resolveTypes stmt
+  resolveTypes (UnlabeledStatement stmt)     = UnlabeledStatement <$> resolveTypes stmt
+
+instance TypeChecker UnlabeledStatement where
+  resolveTypes :: UnlabeledStatement SwitchResolvingPhase -> SemanticAnalyzerMonad (UnlabeledStatement TypeCheckingPhase)
+  resolveTypes (Expression () expr)               = resolveTypes expr >>= \expr' -> return $ Expression (getExpType expr') expr'
+  resolveTypes (Compound   () block)              = Compound   () <$> resolveTypes block
+  resolveTypes (If         () cond conseq altern) = If         () <$> resolveTypes cond  <*> resolveTypes conseq <*> (resolveTypes <$?> altern)
+  resolveTypes (While      lb cond body)          = While      lb <$> resolveTypes cond  <*> resolveTypes body
+  resolveTypes (DoWhile    lb body cond)          = DoWhile    lb <$> resolveTypes body  <*> resolveTypes cond
+  resolveTypes (For        lb ini cond post body) = For        lb <$> resolveTypes ini   <*> (resolveTypes <$?> cond) <*> (resolveTypes <$?> post) <*> resolveTypes body
+  resolveTypes (Switch     lb expr body)          = Switch     lb <$> resolveTypes expr  <*> resolveTypes body
+  resolveTypes (Return     () expr)               = Return     () <$> resolveTypes expr
+  resolveTypes (Goto       () label)              = pure $ Goto     () label
+  resolveTypes (Continue   lb)                    = pure $ Continue lb
+  resolveTypes (Break      lb)                    = pure $ Break    lb
+  resolveTypes (Null       ())                    = pure $ Null     ()
+
+instance TypeChecker ForInit where
+  resolveTypes :: ForInit SwitchResolvingPhase -> SemanticAnalyzerMonad (ForInit TypeCheckingPhase)
+  resolveTypes (InitDecl decl) = InitDecl <$> resolveTypes decl
+  resolveTypes (InitExp  expr) = InitExp  <$> (resolveTypes <$?> expr)
+
+instance TypeChecker Label where
+  resolveTypes :: Label SwitchResolvingPhase -> SemanticAnalyzerMonad (Label TypeCheckingPhase)
+  resolveTypes (Label () label)  = pure $ Label () label
+  resolveTypes (Case label expr) = pure $ Case label expr
+  resolveTypes (Default label)   = pure $ Default label
+
+instance TypeChecker Exp where
+  resolveTypes :: Exp SwitchResolvingPhase -> SemanticAnalyzerMonad (Exp TypeCheckingPhase)
+  resolveTypes (Constant     () cons)               = pure $ Constant (getConstType cons) cons
+  resolveTypes (Unary        () op expr)            = resolveTypes expr >>= \expr' -> pure $ Unary (getExpType expr') op expr'
+  resolveTypes (Var          () var)                =
+    do symbolTypes <- gets envSymbolTypes
+       let varType = symbolTypes ! var
+       when (varType /= Int) $ throwError FunctionUsedAsVariable
+       pure $ Var varType var
+  resolveTypes (Binary       () op expr1 expr2)     =
+    do expr1' <- resolveTypes expr1
+       expr2' <- resolveTypes expr2
+       when (getExpType expr1' /= getExpType expr2') $ throwError IncompatibleTypes
+       pure $ Binary (getExpType expr1') op expr1' expr2'
+  resolveTypes (Assignment   () lhs op rhs)=
+    do lhs' <- resolveTypes lhs
+       rhs' <- resolveTypes rhs
+       when (getExpType lhs' /= getExpType rhs') $ throwError IncompatibleTypes
+       pure $ Assignment (getExpType lhs') lhs' op rhs'
+  resolveTypes (Conditional  () cond conseq altern) =
+    do cond' <- resolveTypes cond
+       when (getExpType cond' /= Int) $ throwError IncompatibleTypes
+
+       conseq' <- resolveTypes conseq
+       altern' <- resolveTypes altern
+       when (getExpType conseq' /= getExpType altern') $ throwError IncompatibleTypes
+
+       pure $ Conditional (getExpType conseq') cond' conseq' altern'
+  resolveTypes (FunctionCall () name args)          =
+    do symbolTypes <- gets envSymbolTypes
+       (paramsT, retT) <- case M.lookup name symbolTypes of
+                            Just (Fun ps r) -> pure (ps, r)
+                            _               -> throwError VariableUsedAsFunction
+       args' <- mapM resolveTypes args
+       let argsT = map getExpType args'
+       when (paramsT /= argsT) $ throwError IncompatibleTypes
+       pure $ FunctionCall retT name args'
+

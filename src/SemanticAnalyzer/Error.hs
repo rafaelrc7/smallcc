@@ -5,8 +5,8 @@ module SemanticAnalyzer.Error where
 
 import           Parser.AST (Identifier)
 
-data SemanticError = DuplicateVariableDeclaration Identifier
-                   | UndefinedVariableUse Identifier
+data SemanticError = DuplicateDeclaration Identifier
+                   | UndefinedIdentifierUse Identifier
                    | InvalidLHS
                    | NotConstantExpression
                    | DuplicateLabelDeclaration Identifier
@@ -16,5 +16,10 @@ data SemanticError = DuplicateVariableDeclaration Identifier
                    | StatementOutsideSwitchOrLoop
                    | DuplicateCaseValue
                    | DuplicateDefaultValue
+                   | NestedFunctionDefinition
+                   | IncompatibleTypes
+                   | FunctionDefinedMoreThanOnce
+                   | FunctionUsedAsVariable
+                   | VariableUsedAsFunction
   deriving (Show)
 
