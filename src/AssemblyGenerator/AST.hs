@@ -78,19 +78,9 @@ data Reg = AX
          | R11
   deriving (Show)
 
-replacePseudoRegisters :: Program -> (Program, Int)
-replacePseudoRegisters program = (program', lastOffsetVarMap varMap''')
-  where (program', varMap''') = replaceInProgram newVarMap program
-
-        replaceInProgram :: VarMap -> Program -> (Program, VarMap)
-        replaceInProgram varMap (Program functions) = (Program functions', varMap')
-          where (functions', varMap') = replaceInFunctions varMap functions
-
-        replaceInFunctions :: VarMap -> [FunctionDefinition] -> ([FunctionDefinition], VarMap)
-        replaceInFunctions varMap [] = ([], varMap)
-        replaceInFunctions varMap (f:fs) = (f':fs', varMap'')
-          where (f', varMap') = replaceInFunction varMap f
-                (fs', varMap'') = replaceInFunctions varMap' fs
+replacePseudoRegisters :: FunctionDefinition -> (FunctionDefinition, Int)
+replacePseudoRegisters function = (function', lastOffsetVarMap varMap''')
+  where (function', varMap''') = replaceInFunction newVarMap function
 
         replaceInFunction :: VarMap -> FunctionDefinition -> (FunctionDefinition, VarMap)
         replaceInFunction varMap (Function {funcName=name, funcInstructions=instructions}) = (Function {funcName=name, funcInstructions=instructions'}, varMap')
@@ -122,12 +112,9 @@ replacePseudoRegisters program = (program', lastOffsetVarMap varMap''')
           where (varMap', offset) = fetchVarMap varMap identifier
         replaceInOperand varMap operand = (operand, varMap)
 
-fixInstructions :: (Program, Int) -> Program
-fixInstructions (program, lastOffset) = fixProgram program
-  where fixProgram :: Program -> Program
-        fixProgram (Program functions) = Program $ map fixFunction functions
-
-        fixFunction :: FunctionDefinition -> FunctionDefinition
+fixInstructions :: (FunctionDefinition, Int) -> FunctionDefinition
+fixInstructions (function, lastOffset) = fixFunction function
+  where fixFunction :: FunctionDefinition -> FunctionDefinition
         fixFunction (Function {funcName=name, funcInstructions=instructions}) = Function {funcName=name, funcInstructions=instructions'}
           where instructions' = AllocateStack lastOffset : concatMap fixInstruction instructions
 
@@ -178,7 +165,7 @@ fetchVarMap vm@(varMap, lastOffset) identifier = case varMap !? identifier of
         varMap' = Map.insert identifier newOffset varMap
 
 translateProgram :: T.Program -> Program
-translateProgram (T.Program functions) = Program $ map translateFunctionDefinition functions
+translateProgram (T.Program functions) = Program $ map (fixInstructions . replacePseudoRegisters . translateFunctionDefinition) functions
 
 translateFunctionDefinition :: T.FunctionDefinition -> FunctionDefinition
 translateFunctionDefinition func = Function { funcName = T.funcIdentifier func
