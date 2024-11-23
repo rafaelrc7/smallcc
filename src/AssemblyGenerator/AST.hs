@@ -8,7 +8,7 @@ import qualified Tacky.AST       as T
 
 type Identifier = Text
 
-newtype Program = Program FunctionDefinition
+newtype Program = Program [FunctionDefinition]
   deriving (Show)
 
 data FunctionDefinition = Function { funcName         :: Identifier
@@ -33,6 +33,9 @@ data Instruction = Mov { movSrc :: Operand
                  | SetCC Conditional Operand
                  | Label Identifier
                  | AllocateStack Int
+                 | DeallocateStack Int
+                 | Push Operand
+                 | Call Identifier
                  | Ret
   deriving (Show)
 
@@ -65,8 +68,12 @@ data Conditional = E
   deriving (Show)
 
 data Reg = AX
-         | DX
          | CX
+         | DX
+         | DI
+         | SI
+         | R8
+         | R9
          | R10
          | R11
   deriving (Show)
@@ -76,8 +83,14 @@ replacePseudoRegisters program = (program', lastOffsetVarMap varMap''')
   where (program', varMap''') = replaceInProgram newVarMap program
 
         replaceInProgram :: VarMap -> Program -> (Program, VarMap)
-        replaceInProgram varMap (Program function) = (Program function', varMap')
-          where (function', varMap') = replaceInFunction varMap function
+        replaceInProgram varMap (Program functions) = (Program functions', varMap')
+          where (functions', varMap') = replaceInFunctions varMap functions
+
+        replaceInFunctions :: VarMap -> [FunctionDefinition] -> ([FunctionDefinition], VarMap)
+        replaceInFunctions varMap [] = ([], varMap)
+        replaceInFunctions varMap (f:fs) = (f':fs', varMap'')
+          where (f', varMap') = replaceInFunction varMap f
+                (fs', varMap'') = replaceInFunctions varMap' fs
 
         replaceInFunction :: VarMap -> FunctionDefinition -> (FunctionDefinition, VarMap)
         replaceInFunction varMap (Function {funcName=name, funcInstructions=instructions}) = (Function {funcName=name, funcInstructions=instructions'}, varMap')
@@ -112,7 +125,7 @@ replacePseudoRegisters program = (program', lastOffsetVarMap varMap''')
 fixInstructions :: (Program, Int) -> Program
 fixInstructions (program, lastOffset) = fixProgram program
   where fixProgram :: Program -> Program
-        fixProgram (Program function) = Program $ fixFunction function
+        fixProgram (Program functions) = Program $ map fixFunction functions
 
         fixFunction :: FunctionDefinition -> FunctionDefinition
         fixFunction (Function {funcName=name, funcInstructions=instructions}) = Function {funcName=name, funcInstructions=instructions'}
@@ -165,7 +178,7 @@ fetchVarMap vm@(varMap, lastOffset) identifier = case varMap !? identifier of
         varMap' = Map.insert identifier newOffset varMap
 
 translateProgram :: T.Program -> Program
-translateProgram (T.Program [func]) = Program $ translateFunctionDefinition func
+translateProgram (T.Program functions) = Program $ map translateFunctionDefinition functions
 
 translateFunctionDefinition :: T.FunctionDefinition -> FunctionDefinition
 translateFunctionDefinition func = Function { funcName = T.funcIdentifier func

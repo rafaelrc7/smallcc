@@ -13,7 +13,7 @@ class Assembly a where
 
 instance Assembly Program where
   emit :: Program -> Text
-  emit (Program func) = emit func <> ".section .note.GNU-stack,\"\",@progbits\n\n"
+  emit (Program fs) = T.concat $ map (\f -> emit f <> ".section .note.GNU-stack,\"\",@progbits\n\n") fs
 
 instance Assembly FunctionDefinition where
   emit :: FunctionDefinition -> Text
