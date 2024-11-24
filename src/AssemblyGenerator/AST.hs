@@ -4,6 +4,7 @@ import           Data.Map.Strict (Map, (!?))
 import qualified Data.Map.Strict as Map
 import           Data.Text       (Text)
 
+import           Numeric.Natural (Natural)
 import qualified Tacky.AST       as T
 
 type Identifier = Text
@@ -11,9 +12,7 @@ type Identifier = Text
 newtype Program = Program [FunctionDefinition]
   deriving (Show)
 
-data FunctionDefinition = Function { funcName         :: Identifier
-                                   , funcInstructions :: [Instruction]
-                                   }
+data FunctionDefinition = Function Identifier [Instruction]
   deriving (Show)
 
 data Instruction = Mov { movSrc :: Operand
@@ -83,7 +82,7 @@ replacePseudoRegisters function = (function', lastOffsetVarMap varMap''')
   where (function', varMap''') = replaceInFunction newVarMap function
 
         replaceInFunction :: VarMap -> FunctionDefinition -> (FunctionDefinition, VarMap)
-        replaceInFunction varMap (Function {funcName=name, funcInstructions=instructions}) = (Function {funcName=name, funcInstructions=instructions'}, varMap')
+        replaceInFunction varMap (Function name instructions) = (Function name instructions', varMap')
           where (instructions', varMap') = foldr (\i (is, vm) -> let (i', vm') = replaceInInstruction vm i in (i' : is, vm'))
                                                  ([], varMap)
                                                  instructions
@@ -105,6 +104,8 @@ replacePseudoRegisters function = (function', lastOffsetVarMap varMap''')
                 (op2', varMap'') = replaceInOperand varMap' op2
         replaceInInstruction varMap (SetCC cond op) = (SetCC cond op', varMap')
           where (op', varMap') = replaceInOperand varMap op
+        replaceInInstruction varMap (Push op) = (Push op', varMap')
+          where (op', varMap') = replaceInOperand varMap op
         replaceInInstruction varMap instruction = (instruction, varMap)
 
         replaceInOperand :: VarMap -> Operand -> (Operand, VarMap)
@@ -115,8 +116,8 @@ replacePseudoRegisters function = (function', lastOffsetVarMap varMap''')
 fixInstructions :: (FunctionDefinition, Int) -> FunctionDefinition
 fixInstructions (function, lastOffset) = fixFunction function
   where fixFunction :: FunctionDefinition -> FunctionDefinition
-        fixFunction (Function {funcName=name, funcInstructions=instructions}) = Function {funcName=name, funcInstructions=instructions'}
-          where instructions' = AllocateStack lastOffset : concatMap fixInstruction instructions
+        fixFunction (Function name instructions) = Function name instructions'
+          where instructions' = AllocateStack (roundToMultipleOf16 lastOffset) : concatMap fixInstruction instructions
 
 
         fixInstruction :: Instruction -> [Instruction]
@@ -168,9 +169,23 @@ translateProgram :: T.Program -> Program
 translateProgram (T.Program functions) = Program $ map (fixInstructions . replacePseudoRegisters . translateFunctionDefinition) functions
 
 translateFunctionDefinition :: T.FunctionDefinition -> FunctionDefinition
-translateFunctionDefinition func = Function { funcName = T.funcIdentifier func
-                                            , funcInstructions = translateInstruction $ T.funcBody func
-                                            }
+translateFunctionDefinition (T.Function name params body) =
+  Function name (regParamsIns ++ stackParamsIns ++ translateInstruction body)
+  where (regParams', stackParams') = splitAt 6 params
+        regParams = zip regParams' [Reg DI, Reg SI, Reg DX, Reg CX, Reg R8, Reg R9]
+        stackParams = zip stackParams' [0..]
+        regParamsIns = translateRegisterParameters regParams
+        stackParamsIns = translateStackParameters stackParams
+
+translateRegisterParameters :: [(Identifier, Operand)] -> [Instruction]
+translateRegisterParameters []                  = []
+translateRegisterParameters ((param, reg):params) = Mov { movSrc = reg, movDst = Pseudo param } : translateRegisterParameters params
+
+translateStackParameters :: [(Identifier, Natural)] -> [Instruction]
+translateStackParameters []                     = []
+translateStackParameters ((param, paramN):params) = Mov { movSrc = Stack stackOffset, movDst = Pseudo param } : translateStackParameters params
+  where stackOffset = fromInteger $ toInteger $ 16 + 8*paramN
+
 
 translateInstruction :: [T.Instruction] -> [Instruction]
 translateInstruction [] = []
@@ -248,6 +263,23 @@ translateInstruction (T.Copy src dst : is) =
   Mov (translateOperand src) (translateOperand dst) : translateInstruction is
 translateInstruction (T.Label label : is) =
   Label label : translateInstruction is
+translateInstruction (T.FunCall name args ret : is) =
+    stackPaddingIns
+      ++ translateRegisterArguments regArgs
+      ++ translateStackArguments stackArgs
+      ++ [ Call name ]
+      ++ stackCleanupIns
+      ++ [ Mov { movSrc = Reg AX, movDst = ret' } ]
+      ++ translateInstruction is
+  where (regArgs', stackArgs') = splitAt 6 args
+        regArgs = zip regArgs' [Reg DI, Reg SI, Reg DX, Reg CX, Reg R8, Reg R9]
+        stackArgs = reverse stackArgs'
+        stackArgsLen = length stackArgs
+        stackPadding = if odd stackArgsLen then 8 else 0
+        stackPaddingIns = [AllocateStack stackPadding | stackPadding > 0]
+        bytesToRemove = 8 * stackArgsLen + stackPadding
+        stackCleanupIns = [DeallocateStack bytesToRemove | bytesToRemove > 0]
+        ret' = translateOperand ret
 
 translateUnaryInstruction :: UnaryOperator -> T.Val -> T.Val -> [Instruction]
 translateUnaryInstruction op src dst =
@@ -280,3 +312,29 @@ translateOperand :: T.Val -> Operand
 translateOperand (T.Const v) = Imm v
 translateOperand (T.Var i)   = Pseudo i
 
+translateRegisterArguments :: [(T.Val, Operand)] -> [Instruction]
+translateRegisterArguments []                = []
+translateRegisterArguments ((val, reg):args) = Mov { movSrc=val', movDst=reg } : translateRegisterArguments args
+  where val' = translateOperand val
+
+translateStackArguments :: [T.Val] -> [Instruction]
+translateStackArguments []         = []
+translateStackArguments (arg:args) = ins ++ translateStackArguments args
+  where val = translateOperand arg
+        ins = case val of
+                v@(Imm _) -> [ Push v ]
+                v@(Reg _) -> [ Push v ]
+                v         -> [ Mov { movSrc = v
+                                   , movDst = Reg AX
+                                   }
+                             , Push (Reg AX)
+                             ]
+
+roundToMultiple :: Int -> Int -> Int
+roundToMultiple 0 num = num
+roundToMultiple multiple num = if remainder == 0 then num
+                                                 else num + multiple - remainder
+  where remainder = num `rem` multiple
+
+roundToMultipleOf16 :: Int -> Int
+roundToMultipleOf16 = roundToMultiple 16

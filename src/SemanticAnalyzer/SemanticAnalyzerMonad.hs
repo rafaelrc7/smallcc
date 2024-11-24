@@ -202,30 +202,6 @@ resolveNewIdentifier hasLinkage name =
              modify (\env -> env { envCurrentScope = currentScope' })
              return name'
 
-resolveLabel :: Identifier -> SemanticAnalyzerMonad Identifier
-resolveLabel label =
-  do functionName <- gets envFunctionName
-     labelCounter <- gets envIdentifierCounter
-     labelEnv     <- gets envLabelEnv
-     if label `M.member` labelEnv then
-       throwError $ DuplicateLabelDeclaration label
-     else do
-       let labelCounter' = succ labelCounter
-       let label' = ".L" <> fromMaybe "" functionName <> "." <> label <> "." <> T.pack (show labelCounter')
-       let labelEnv' = M.insert label label' labelEnv
-       modify (\env -> env { envLabelEnv = labelEnv', envIdentifierCounter = labelCounter' })
-       return label'
-
-newLabel :: Identifier -> SemanticAnalyzerMonad Identifier
-newLabel caption =
-  do functionName <- gets envFunctionName
-     labelCounter <- gets envIdentifierCounter
-     let labelCounter' = succ labelCounter
-     let label' = ".L" <> fromMaybe "" functionName <> "." <> caption <> "." <> T.pack (show labelCounter')
-     modify (\env -> env { envIdentifierCounter = labelCounter' })
-     return label'
-
-
 getIdentifier :: Identifier -> SemanticAnalyzerMonad Identifier
 getIdentifier identifier = do currentScopeVarEnv <- gets envCurrentScope
                               upperScopeVarEnvs  <- gets envEnclosingScopes
@@ -233,11 +209,37 @@ getIdentifier identifier = do currentScopeVarEnv <- gets envCurrentScope
                                 Nothing          -> throwError $ UndefinedIdentifierUse identifier
                                 Just (identifier', _) -> return identifier'
 
+resolveLabel :: Identifier -> SemanticAnalyzerMonad Identifier
+resolveLabel label =
+  do functionName <- gets envFunctionName
+     labelCounter <- gets envIdentifierCounter
+     labelEnv     <- gets envLabelEnv
+     let label' = maybe "" (<> ".") functionName <> label
+     if label' `M.member` labelEnv then
+       throwError $ DuplicateLabelDeclaration label
+     else do
+       let labelCounter' = succ labelCounter
+       let label'' = label' <> "." <> T.pack (show labelCounter')
+       let labelEnv' = M.insert label' label'' labelEnv
+       modify (\env -> env { envLabelEnv = labelEnv', envIdentifierCounter = labelCounter' })
+       return label''
+
+newLabel :: Identifier -> SemanticAnalyzerMonad Identifier
+newLabel caption =
+  do functionName <- gets envFunctionName
+     labelCounter <- gets envIdentifierCounter
+     let labelCounter' = succ labelCounter
+     let label' = fromMaybe "" functionName <> "." <> caption <> "." <> T.pack (show labelCounter')
+     modify (\env -> env { envIdentifierCounter = labelCounter' })
+     return label'
+
 getLabel :: Identifier -> SemanticAnalyzerMonad Identifier
-getLabel label = do m <- gets envLabelEnv
-                    case M.lookup label m of
-                      Nothing     -> throwError $ UndefinedLabelUse label
-                      Just label' -> return label'
+getLabel label = do functionName <- gets envFunctionName
+                    labelEnv <- gets envLabelEnv
+                    let label' = maybe "" (<> ".") functionName <> label
+                    case M.lookup label' labelEnv of
+                      Nothing      -> throwError $ UndefinedLabelUse label
+                      Just label'' -> return label''
 
 localState :: (Environment -> Environment) -> (Environment -> Environment) -> SemanticAnalyzerMonad a -> SemanticAnalyzerMonad a
 localState push pop action =

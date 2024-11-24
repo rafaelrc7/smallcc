@@ -26,10 +26,7 @@ import           SemanticAnalyzer.SemanticAnalyzerMonad (SwitchLabel (..),
 newtype Program = Program [FunctionDefinition]
   deriving (Show)
 
-data FunctionDefinition = Function { funcIdentifier :: Identifier
-                                   , funcParams     :: [Identifier]
-                                   , funcBody       :: [Instruction]
-                                   }
+data FunctionDefinition = Function Identifier [Identifier] [Instruction]
   deriving (Show)
 
 data Instruction = Return Val
@@ -80,10 +77,11 @@ data Val = Const Int
 
 data Environment = Environment { envLastVar   :: Natural
                                , envLastLabel :: Natural
+                               , envFuncName  :: Identifier
                                }
 
-emptyEnv :: Environment
-emptyEnv = Environment { envLastVar = 0, envLastLabel = 0 }
+emptyEnv :: Identifier -> Environment
+emptyEnv funcName = Environment { envLastVar = 0, envLastLabel = 0, envFuncName = funcName }
 
 type TackyGenerationMonad a = StateT Environment (Writer [Instruction]) a
 
@@ -98,12 +96,12 @@ newTmpVar :: TackyGenerationMonad Val
 newTmpVar = newVar Nothing
 
 newLabel :: Maybe Text -> TackyGenerationMonad Text
-newLabel caption = gets envLastLabel >>= \lastLabel ->
+newLabel caption = gets envLastLabel >>= \lastLabel -> gets envFuncName >>= \funcName ->
   let currLabel = succ lastLabel
       currLabelText = T.pack $ show currLabel
       label = case caption of
-                Nothing       -> "." <> currLabelText
-                Just caption' -> caption' <> "." <> currLabelText
+                Nothing       -> funcName <> ".." <> currLabelText
+                Just caption' -> funcName <> ".." <> caption' <> ".." <> currLabelText
   in modify (\s -> s { envLastLabel = currLabel }) $> label
 
 translateProgram :: P.Program TypeCheckingPhase -> Program
@@ -111,13 +109,9 @@ translateProgram (P.Program func) = Program $ mapMaybe translateFunction func
 
 translateFunction :: P.FunctionDeclaration TypeCheckingPhase -> Maybe FunctionDefinition
 translateFunction (P.FunctionDeclaration _ _ _ Nothing) = Nothing
-translateFunction (P.FunctionDeclaration _ name params (Just body)) = Just $
-     Function { funcIdentifier = name
-              , funcBody = body' ++ [ Return (Const 0) ]
-              , funcParams = params
-              }
+translateFunction (P.FunctionDeclaration _ name params (Just body)) = Just $ Function name params (body' ++ [ Return (Const 0) ])
    where env = emptyEnv
-         body' = snd . runWriter $ evalStateT (translate body) env
+         body' = snd . runWriter $ evalStateT (translate body) (env name)
 
 class TackyGenerator a b | a -> b where
   translate :: a -> TackyGenerationMonad b
