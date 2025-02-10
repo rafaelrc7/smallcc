@@ -14,4 +14,3 @@ import           SemanticAnalyzer.SemanticAnalyzerMonad (IdentifierResolver (..)
 
 semanticAnalyze :: Program ParserPhase -> Either SemanticError (Program TypeCheckingPhase)
 semanticAnalyze prog = runExcept $ evalStateT (resolveIdentifiers prog >>= resolveLabelDeclaration >>= resolveLabelReference >>= resolveSwitch >>= resolveTypes) emptyEnvironment
-

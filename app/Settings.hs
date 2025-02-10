@@ -1,43 +1,50 @@
-module Settings ( CompilerMode(..)
-                , Mode(..)
-                , Settings(..)
-                , parseCLIArgs
-) where
+module Settings
+  ( CompilerMode (..),
+    Mode (..),
+    Settings (..),
+    parseCLIArgs,
+  )
+where
 
 import           Options.Applicative (Alternative ((<|>)), Parser, ParserInfo,
                                       argument, execParser, flag', fullDesc,
                                       header, help, helper, info, long, metavar,
                                       progDesc, short, str, switch, (<**>))
 
-data CompilerMode = LexerMode
-                  | ParserMode
-                  | SemanticAnalyzerMode
-                  | TackyMode
-                  | CodeGeneratorMode
-                  | CodeEmitterMode
- deriving (Show, Eq)
+data CompilerMode
+  = LexerMode
+  | ParserMode
+  | SemanticAnalyzerMode
+  | TackyMode
+  | CodeGeneratorMode
+  | CodeEmitterMode
+  deriving (Show, Eq)
 
-data Mode = PreProcessorMode
-          | CompilerMode CompilerMode
-          | AssemblerMode
-          | LinkerMode
- deriving (Show, Eq)
+data Mode
+  = PreProcessorMode
+  | CompilerMode CompilerMode
+  | AssemblerMode
+  | LinkerMode
+  deriving (Show, Eq)
 
 data Settings = Settings
-  { mode                  :: Mode
-  , keepIntermediateFiles :: Bool
-  , inputFile             :: FilePath
+  { mode                  :: Mode,
+    keepIntermediateFiles :: Bool,
+    inputFile             :: FilePath
   }
- deriving (Show, Eq)
+  deriving (Show, Eq)
 
 parseCLIArgs :: IO Settings
 parseCLIArgs = execParser opts
 
 opts :: ParserInfo Settings
-opts = info (settingsParser <**> helper)
-  (  fullDesc
-  <> progDesc "Compile a C FILE"
-  <> header "Small C Compiler" )
+opts =
+  info
+    (settingsParser <**> helper)
+    ( fullDesc
+        <> progDesc "Compile a C FILE"
+        <> header "Small C Compiler"
+    )
 
 settingsParser :: Parser Settings
 settingsParser = Settings <$> modeParser <*> keepIntermediateFilesParser <*> inputFileParser
@@ -56,56 +63,82 @@ modeParser =
     <|> pure LinkerMode
 
 keepIntermediateFilesParser :: Parser Bool
-keepIntermediateFilesParser = switch ( long "keep" <> short 'K' <> help "Keep intermediate files" )
+keepIntermediateFilesParser = switch (long "keep" <> short 'K' <> help "Keep intermediate files")
 
 inputFileParser :: Parser FilePath
 inputFileParser = argument str (metavar "FILE")
 
 preProcessorMode :: Parser Mode
-preProcessorMode = flag' PreProcessorMode
-  (  long "preprocessor"
-  <> short 'E'
-  <> help "Run up to the pre processor" )
+preProcessorMode =
+  flag'
+    PreProcessorMode
+    ( long "preprocessor"
+        <> short 'E'
+        <> help "Run up to the pre processor"
+    )
 
 lexerMode :: Parser Mode
-lexerMode = flag' (CompilerMode LexerMode)
-  (  long "lex"
-  <> help "Run up to the lexer" )
+lexerMode =
+  flag'
+    (CompilerMode LexerMode)
+    ( long "lex"
+        <> help "Run up to the lexer"
+    )
 
 parserMode :: Parser Mode
-parserMode = flag' (CompilerMode ParserMode)
-  (  long "parse"
-  <> help "Run up to the parser" )
+parserMode =
+  flag'
+    (CompilerMode ParserMode)
+    ( long "parse"
+        <> help "Run up to the parser"
+    )
 
 semanticAnalyzerMode :: Parser Mode
-semanticAnalyzerMode = flag' (CompilerMode SemanticAnalyzerMode)
-  (  long "validate"
-  <> help "Run up to the semantic analyzer" )
+semanticAnalyzerMode =
+  flag'
+    (CompilerMode SemanticAnalyzerMode)
+    ( long "validate"
+        <> help "Run up to the semantic analyzer"
+    )
 
 tackyMode :: Parser Mode
-tackyMode = flag' (CompilerMode TackyMode)
-  (  long "tacky"
-  <> help "Run up to tacky generation" )
+tackyMode =
+  flag'
+    (CompilerMode TackyMode)
+    ( long "tacky"
+        <> help "Run up to tacky generation"
+    )
 
 codeGeneratorMode :: Parser Mode
-codeGeneratorMode = flag' (CompilerMode CodeGeneratorMode)
-  (  long "codegen"
-  <> help "Run up to code generation" )
+codeGeneratorMode =
+  flag'
+    (CompilerMode CodeGeneratorMode)
+    ( long "codegen"
+        <> help "Run up to code generation"
+    )
 
 codeEmitterMode :: Parser Mode
-codeEmitterMode = flag' (CompilerMode CodeEmitterMode)
-  (  long "codeemit"
-  <> short 'S'
-  <> help "Run up to code emission" )
+codeEmitterMode =
+  flag'
+    (CompilerMode CodeEmitterMode)
+    ( long "codeemit"
+        <> short 'S'
+        <> help "Run up to code emission"
+    )
 
 assemblerMode :: Parser Mode
-assemblerMode = flag' AssemblerMode
-  (  long "assembler"
-  <> short 'c'
-  <> help "Run up to the assembler" )
+assemblerMode =
+  flag'
+    AssemblerMode
+    ( long "assembler"
+        <> short 'c'
+        <> help "Run up to the assembler"
+    )
 
 linkerMode :: Parser Mode
-linkerMode = flag' LinkerMode
-  (  long "linker"
-  <> help "Run up to the linker" )
-
+linkerMode =
+  flag'
+    LinkerMode
+    ( long "linker"
+        <> help "Run up to the linker"
+    )

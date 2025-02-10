@@ -7,4 +7,3 @@ import           Tacky.AST                              (Program,
 
 translateTacky :: P.Program TypeCheckingPhase -> Program
 translateTacky = translateProgram
-

@@ -9,4 +9,3 @@ import           Parser.ParserMonad   (Parser (parse), ParserPhase)
 
 parseProgram :: [Token] -> Either ParserError (Program ParserPhase)
 parseProgram = runExcept . evalStateT parse
-

@@ -1,11 +1,13 @@
 {-# LANGUAGE InstanceSigs      #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Parser.Error (ParserError(..)
-                    , expectedEOF
-                    , unexpectedEOF
-                    , unexpectedToken
-                    ) where
+module Parser.Error
+  ( ParserError (..),
+    expectedEOF,
+    unexpectedEOF,
+    unexpectedToken,
+  )
+where
 
 import           Data.Set    (Set)
 import qualified Data.Set    as S
@@ -36,12 +38,13 @@ instance Locatable ParserError where
 instance PrettyPrinter ParserError where
   pretty :: ParserError -> Text
   pretty (UnexpectedToken e (Just (Token g _ _))) = "Expected " <> printExpectedSet e <> " but got a '" <> pretty g <> "'"
-  pretty (UnexpectedToken e Nothing)              = "Expected " <> printExpectedSet e <> " but reached EOF"
+  pretty (UnexpectedToken e Nothing) = "Expected " <> printExpectedSet e <> " but reached EOF"
 
 printExpectedSet :: Set Text -> Text
-printExpectedSet ex | S.null ex = "token 'EOF'"
-                    | S.size ex == 1 = "token '" <> S.elemAt 0 ex <> "'"
-                    | otherwise = "one of tokens [" <> T.intercalate ", " (map (\t -> T.cons '\'' $ T.snoc t '\'') $ S.elems ex) <> "]"
+printExpectedSet ex
+  | S.null ex = "token 'EOF'"
+  | S.size ex == 1 = "token '" <> S.elemAt 0 ex <> "'"
+  | otherwise = "one of tokens [" <> T.intercalate ", " (map (\t -> T.cons '\'' $ T.snoc t '\'') $ S.elems ex) <> "]"
 
 instance Semigroup ParserError where
   (<>) :: ParserError -> ParserError -> ParserError
@@ -55,4 +58,3 @@ instance Monoid ParserError where
   mempty = UnexpectedToken S.empty Nothing
 
 instance Error ParserError
-

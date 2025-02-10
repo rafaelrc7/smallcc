@@ -3,12 +3,12 @@
 
 module Lexer.Token where
 
-import           Pretty    (PrettyPrinter (..))
-
 import           Data.Text (Text)
 import           Location
+import           Pretty    (PrettyPrinter (..))
 
 type Lexeme = Text
+
 type Identifier = Text
 
 data Token = Token TokenType Lexeme Location
@@ -22,67 +22,69 @@ instance Locatable Token where
   locate :: Token -> Maybe Location
   locate (Token _ _ loc) = Just loc
 
-data TokenType = Keyword Keyword
-               | Identifier Identifier
-               | Constant Int
-               | String Text
-               | OpenParens
-               | CloseParens
-               | OpenBrace
-               | CloseBrace
-               | Semicolon
-               | Complement
-               | Decrement
-               | Increment
-               | Minus
-               | Plus
-               | Asterisk
-               | ForwardSlash
-               | Percent
-               | And
-               | BitAnd
-               | Or
-               | BitOr
-               | BitXOR
-               | Less
-               | LessOrEqual
-               | BitShiftLeft
-               | Greater
-               | GreaterOrEqual
-               | BitShiftRight
-               | Not
-               | NotEqualsTo
-               | EqualsTo
-               | Equals
-               | IncAssign
-               | DecAssign
-               | MulAssign
-               | DivAssign
-               | ModAssign
-               | BitAndAssign
-               | BitOrAssign
-               | BitXORAssign
-               | BitShiftLeftAssign
-               | BitShiftRightAssign
-               | QuestionMark
-               | Colon
-               | Comma
+data TokenType
+  = Keyword Keyword
+  | Identifier Identifier
+  | Constant Int
+  | String Text
+  | OpenParens
+  | CloseParens
+  | OpenBrace
+  | CloseBrace
+  | Semicolon
+  | Complement
+  | Decrement
+  | Increment
+  | Minus
+  | Plus
+  | Asterisk
+  | ForwardSlash
+  | Percent
+  | And
+  | BitAnd
+  | Or
+  | BitOr
+  | BitXOR
+  | Less
+  | LessOrEqual
+  | BitShiftLeft
+  | Greater
+  | GreaterOrEqual
+  | BitShiftRight
+  | Not
+  | NotEqualsTo
+  | EqualsTo
+  | Equals
+  | IncAssign
+  | DecAssign
+  | MulAssign
+  | DivAssign
+  | ModAssign
+  | BitAndAssign
+  | BitOrAssign
+  | BitXORAssign
+  | BitShiftLeftAssign
+  | BitShiftRightAssign
+  | QuestionMark
+  | Colon
+  | Comma
   deriving (Show, Eq)
 
-data Keyword = Int
-             | Void
-             | Return
-             | If
-             | Else
-             | Goto
-             | Do
-             | While
-             | For
-             | Break
-             | Continue
-             | Switch
-             | Case
-             | Default
+data Keyword
+  = Int
+  | Void
+  | Return
+  | If
+  | Else
+  | Goto
+  | Do
+  | While
+  | For
+  | Break
+  | Continue
+  | Switch
+  | Case
+  | Default
   deriving (Show, Eq)
 
 tokenType :: Token -> TokenType
@@ -107,10 +109,10 @@ scanKeyword _          = Nothing
 
 instance PrettyPrinter TokenType where
   pretty :: TokenType -> Text
-  pretty (Keyword    i)      = pretty i
+  pretty (Keyword i)         = pretty i
   pretty (Identifier i)      = pretty i
-  pretty (Constant   i)      = pretty i
-  pretty (String     s)      = "\"" <> s <> "\""
+  pretty (Constant i)        = pretty i
+  pretty (String s)          = "\"" <> s <> "\""
   pretty OpenParens          = "("
   pretty CloseParens         = ")"
   pretty OpenBrace           = "{"
@@ -169,4 +171,3 @@ instance PrettyPrinter Keyword where
   pretty Switch   = "switch"
   pretty Case     = "case"
   pretty Default  = "default"
-

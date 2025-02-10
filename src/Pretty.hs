@@ -31,5 +31,5 @@ identLines = T.unlines . map (T.cons '\t') . T.lines
 
 padLeft :: Int -> Text -> Text
 padLeft size = T.unlines . map (T.append pad) . T.lines
-  where pad = T.replicate size " "
-
+  where
+    pad = T.replicate size " "

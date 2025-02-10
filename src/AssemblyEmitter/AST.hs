@@ -3,18 +3,18 @@
 
 module AssemblyEmitter.AST where
 
+import           AssemblyGenerator.AST
+import           Control.Monad.Reader  (MonadReader (ask, local), ReaderT)
+import           Control.Monad.Writer  (Writer, tell)
 import           Data.Set              (Set)
 import qualified Data.Set              as S
 import           Data.Text             (Text)
 import qualified Data.Text             as T
 
-import           AssemblyGenerator.AST
-import           Control.Monad.Reader  (MonadReader (ask, local), ReaderT)
-import           Control.Monad.Writer  (Writer, tell)
-
-data Size = B1
-          | B4
-          | B8
+data Size
+  = B1
+  | B4
+  | B8
 
 type AssemblyEmissionMonad a = ReaderT (Set Identifier) (Writer Text) a
 
@@ -24,28 +24,36 @@ class AssemblyEmitter a where
 instance AssemblyEmitter Program where
   emit :: Program -> AssemblyEmissionMonad ()
   emit (Program functions) =
-      local (const functionSet) $ mapM_ (\f -> emit f >> tell "\n\n") functions >> tell ".section .note.GNU-stack,\"\",@progbits\n\n"
-    where functionSet = S.fromList $ map (\(Function name _) -> name) functions
+    local (const functionSet) $ mapM_ (\f -> emit f >> tell "\n\n") functions >> tell ".section .note.GNU-stack,\"\",@progbits\n\n"
+    where
+      functionSet = S.fromList $ map (\(Function name _) -> name) functions
 
 instance AssemblyEmitter FunctionDefinition where
   emit :: FunctionDefinition -> AssemblyEmissionMonad ()
   emit (Function name instructions) =
-    do tell $ ".globl " <> name <> "\n"
-           <> name <> ":\n"
-           <> "pushq %rbp\n"
-           <> "movq %rsp, %rbp\n"
-       mapM_ (\i -> emit i >> tell "\n") instructions
+    do
+      tell $
+        ".globl "
+          <> name
+          <> "\n"
+          <> name
+          <> ":\n"
+          <> "pushq %rbp\n"
+          <> "movq %rsp, %rbp\n"
+      mapM_ (\i -> emit i >> tell "\n") instructions
 
 instance AssemblyEmitter Instruction where
   emit :: Instruction -> AssemblyEmissionMonad ()
-  emit Mov {movSrc=src, movDst=dst} = tell "movl " >> emit src >> tell ", " >> emit dst
-  emit Ret = tell "movq %rbp, %rsp\n\
-                  \popq %rbp\n\
-                  \ret"
-  emit Unary {unaryOperand=operand, unaryOp=op} = emit op >> tell " " >> emit operand
-  emit Binary {binaryOperands=(Reg reg, op2), binaryOp=op@ShiftLeft} = emit op >> tell " " >> tell (emitReg B1 reg) >> tell ", " >> emit op2
-  emit Binary {binaryOperands=(Reg reg, op2), binaryOp=op@ShiftRight} = emit op >> tell " " >> tell (emitReg B1 reg) >> tell ", " >> emit op2
-  emit Binary {binaryOperands=(op1, op2), binaryOp=op} =  emit op >> tell " " >> emit op1 >> tell ", " >> emit op2
+  emit Mov {movSrc = src, movDst = dst} = tell "movl " >> emit src >> tell ", " >> emit dst
+  emit Ret =
+    tell
+      "movq %rbp, %rsp\n\
+      \popq %rbp\n\
+      \ret"
+  emit Unary {unaryOperand = operand, unaryOp = op} = emit op >> tell " " >> emit operand
+  emit Binary {binaryOperands = (Reg reg, op2), binaryOp = op@ShiftLeft} = emit op >> tell " " >> tell (emitReg B1 reg) >> tell ", " >> emit op2
+  emit Binary {binaryOperands = (Reg reg, op2), binaryOp = op@ShiftRight} = emit op >> tell " " >> tell (emitReg B1 reg) >> tell ", " >> emit op2
+  emit Binary {binaryOperands = (op1, op2), binaryOp = op} = emit op >> tell " " >> emit op1 >> tell ", " >> emit op2
   emit (Idiv operand) = tell "idivl " >> emit operand
   emit Cdq = tell "cdq"
   emit (AllocateStack offset) = tell $ "subq " <> literal offset <> ", %rsp"
@@ -59,9 +67,10 @@ instance AssemblyEmitter Instruction where
   emit (Push (Reg reg)) = tell $ "pushq " <> emitReg B8 reg
   emit (Push operand) = tell "pushq " >> emit operand
   emit (Call label) =
-    do functionsSet <- ask
-       let suffix = if S.member label functionsSet then "" else "@PLT"
-       tell $ "call " <> label <> suffix
+    do
+      functionsSet <- ask
+      let suffix = if S.member label functionsSet then "" else "@PLT"
+      tell $ "call " <> label <> suffix
 
 instance AssemblyEmitter Operand where
   emit :: Operand -> AssemblyEmissionMonad ()
@@ -109,7 +118,6 @@ emitReg B1 R8  = "%r8b"
 emitReg B1 R9  = "%r9b"
 emitReg B1 R10 = "%r10b"
 emitReg B1 R11 = "%r11b"
-
 emitReg B4 AX  = "%eax"
 emitReg B4 CX  = "%ecx"
 emitReg B4 DX  = "%edx"
@@ -119,7 +127,6 @@ emitReg B4 R8  = "%r8d"
 emitReg B4 R9  = "%r9d"
 emitReg B4 R10 = "%r10d"
 emitReg B4 R11 = "%r11d"
-
 emitReg B8 AX  = "%rax"
 emitReg B8 CX  = "%rcx"
 emitReg B8 DX  = "%rdx"
@@ -132,4 +139,3 @@ emitReg B8 R11 = "%r11"
 
 literal :: Int -> Text
 literal v = T.pack $ '$' : show v
-

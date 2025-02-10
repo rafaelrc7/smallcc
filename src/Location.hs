@@ -3,13 +3,14 @@
 
 module Location where
 
-import           Pretty
-
 import           Data.Int  (Int64)
 import           Data.Text (Text)
+import           Pretty
 
 type Line = Int64
+
 type Column = Int64
+
 type BufferName = Text
 
 data Location = Location Line Column (Maybe Text)
@@ -22,7 +23,7 @@ instance Ord Location where
     | lin1 > lin2 = GT
     | col1 < col2 = LT
     | col1 > col2 = GT
-    | otherwise   = EQ
+    | otherwise = EQ
 
 class Locatable a where
   locate :: a -> Maybe Location
@@ -30,6 +31,7 @@ class Locatable a where
 instance PrettyPrinter Location where
   pretty :: Location -> Text
   pretty (Location line col buff) = buff' <> pretty line <> ":" <> pretty col
-    where buff' = case buff of Nothing -> ""
-                               Just b  -> b <> ":"
-
+    where
+      buff' = case buff of
+        Nothing -> ""
+        Just b  -> b <> ":"

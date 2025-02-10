@@ -9,7 +9,8 @@
     };
   };
 
-  outputs = inputs:
+  outputs =
+    inputs:
     inputs.flake-parts.lib.mkFlake { inherit inputs; } {
       systems = import inputs.systems;
       imports = [
@@ -17,31 +18,39 @@
         inputs.flake-parts.flakeModules.easyOverlay
       ];
 
-      perSystem = { config, pkgs, ... }: {
-        devShells.default = import ./shell.nix { inherit pkgs; };
+      perSystem =
+        { config, pkgs, ... }:
+        let
+          # GHC version, change to `pkgs.haskell.packages.ghcXYZ`
+          # Available version list can be querried with `nix-env -f "<nixpkgs>" -qaP -A haskell.compiler`
+          haskellPackages = pkgs.haskellPackages;
+        in
+        {
+          packages = rec {
+            default = smallcc;
+            smallcc = pkgs.callPackage ./default.nix { inherit haskellPackages; };
+          };
 
-        packages = rec {
-          default = smallcc;
-          smallcc = pkgs.callPackage ./default.nix { };
-        };
+          apps.default = {
+            type = "app";
+            program = "${config.packages.smallcc}/bin/smallcc";
+          };
 
-        apps.default = {
-          type = "app";
-          program = "${config.packages.smallcc}/bin/smallcc";
-        };
+          overlayAttrs = {
+            inherit (config.packages) smallcc;
+          };
 
-        overlayAttrs = {
-          inherit (config.packages) smallcc;
-        };
+          devShells.default = import ./shell.nix { inherit pkgs haskellPackages; };
 
-        treefmt.config = {
-          projectRootFile = "flake.nix";
-          programs = {
-            nixpkgs-fmt.enable = true;
-            cabal-fmt.enable = true;
-            stylish-haskell.enable = true;
+          treefmt.config = {
+            projectRootFile = "flake.nix";
+            programs = {
+              cabal-fmt.enable = true;
+              nixfmt.enable = true;
+              prettier.enable = true;
+              stylish-haskell.enable = true;
+            };
           };
         };
-      };
     };
 }

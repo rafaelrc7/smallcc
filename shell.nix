@@ -1,16 +1,28 @@
-{ pkgs ? import <nixpkgs> { }, devTools ? true }:
+{
+  pkgs ? import <nixpkgs> { },
+  haskellPackages ? (import <nixpkgs> { }).haskellPackages,
+  devTools ? true,
+}:
 let
-  haskell = pkgs.haskellPackages.extend
-    (final: prev: { smallcc = pkgs.callPackage ./default.nix { }; });
+  haskell = haskellPackages.extend (final: prev: { smallcc = pkgs.callPackage ./default.nix { }; });
 in
 haskell.shellFor {
   packages = p: [ p.smallcc ];
-  nativeBuildInputs = with pkgs;
-    [ ghc cabal-install ] ++ lib.optional devTools [
-      hlint
-      ormolu
-      (ghc.withPackages (p: [ p.haskell-language-server p.haskell-dap p.haskell-debug-adapter p.ghci-dap ]))
-      gcc
+  nativeBuildInputs =
+    [
+      pkgs.gcc
+      (haskell.ghc.withPackages (p: [
+        haskell.cabal-install
+      ]))
+    ]
+    ++ pkgs.lib.optional devTools [
+      (haskell.ghc.withPackages (p: [
+        p.ghci-dap
+        p.haskell-dap
+        p.haskell-debug-adapter
+        p.haskell-language-server
+        p.hlint
+        p.stylish-haskell
+      ]))
     ];
 }
-
