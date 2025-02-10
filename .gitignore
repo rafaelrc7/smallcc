@@ -1,11 +1,18 @@
-/.cache
-/result
 /.direnv/
+/result
+/.cache
+
 /dist-newstyle/
-/main
-/main.*
-/*.c
 /tags
 *.out
 *.log
+
+# C files
+/*.c
+/*.i
+/*.s
+/*.o
+/*.out
+/*.exe
+/main
 
